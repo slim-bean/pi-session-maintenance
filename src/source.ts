@@ -5,7 +5,7 @@ export interface ConversationEntry {
   index: number; id: string; parentId: string | null; timestampMs: number | null;
   role: "user" | "assistant"; text: string;
 }
-export interface Snapshot { path: string; cwd: string; id: string; hash: string; entries: ConversationEntry[]; activity: number }
+export interface Snapshot { path: string; cwd: string; id: string; name?: string; hash: string; entries: ConversationEntry[]; activity: number }
 export const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const timestamp = (value: unknown): number | null => {
   const ms = typeof value === "number" ? value : typeof value === "string" ? Date.parse(value) : NaN;
@@ -23,7 +23,9 @@ export function snapshot(path: string): Snapshot {
     try { return JSON.parse(line); } catch { throw new Error("Incomplete/corrupt session JSONL; retry after the writer settles"); }
   });
   const entries = projectEntries(rawEntries);
-  return { path, id: header.id, cwd: header.cwd, hash: hash(entries), entries,
+  let name: string | undefined;
+  for (const e of rawEntries) if (e?.type === "session_info") name = typeof e.name === "string" && e.name.trim() ? e.name : undefined;
+  return { path, id: header.id, cwd: header.cwd, name, hash: hash(entries), entries,
     activity: entries.reduce((ms, e) => Math.max(ms, e.timestampMs ?? 0), 0) };
 }
 export function projectEntries(rawEntries: unknown[]): ConversationEntry[] {

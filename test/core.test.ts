@@ -31,6 +31,9 @@ test("snapshots include every branch and ignore compaction/metadata changes", ()
     assert.deepEqual(first.entries.map((e) => e.text), ["question", "branch one", "sidequest"]);
     writeFileSync(path, JSON.stringify({ type: "compaction", summary: "not evidence" }) + "\n", { flag: "a" });
     assert.equal(snapshot(path).hash, first.hash);
+    writeFileSync(path, JSON.stringify({ type: "session_info", name: "Focused topic" }) + "\n", { flag: "a" });
+    assert.equal(snapshot(path).name, "Focused topic");
+    assert.equal(snapshot(path).hash, first.hash); // names don't create model work
     writeFileSync(path, '{"type":', { flag: "a" });
     assert.throws(() => snapshot(path), /Incomplete/);
   } finally { rmSync(dir, { recursive: true, force: true }); }

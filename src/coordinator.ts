@@ -13,6 +13,7 @@ export class Coordinator {
   private current?: string;
   private lastActivity: number;
   private force = false;
+  private localHolds = 0;
   private running?: { stage: Stage; path: string; abort: AbortController; promise: Promise<void>; cancelSeq: number };
   private tickRunning = false;
   private generation = 0;
@@ -52,7 +53,7 @@ export class Coordinator {
   poll() {
     if (this.closed || !this.ctx) return;
     this.store.heartbeat();
-    this.store.presence(this.ctx.cwd, !this.ctx.isIdle() || this.ctx.hasPendingMessages());
+    this.store.presence(this.ctx.cwd, this.localHolds > 0 || !this.ctx.isIdle() || this.ctx.hasPendingMessages());
     if (this.running && this.store.control(this.ctx.cwd).cancel_seq !== this.running.cancelSeq) {
       this.running.abort.abort(new Error("Foreground activity in another pi window takes priority"));
       if (this.running.stage === "compact") this.ctx.abort();
@@ -80,7 +81,7 @@ export class Coordinator {
     return this.config.enabled && !c.disabled && c.paused_until <= this.now();
   }
   private idle(): boolean {
-    return Boolean(this.ctx?.isIdle() && !this.ctx.hasPendingMessages() &&
+    return Boolean(!this.localHolds && this.ctx?.isIdle() && !this.ctx.hasPendingMessages() &&
       !this.store.otherBusy(this.ctx.cwd) &&
       (this.force || this.now() - Math.max(this.lastActivity, this.store.control(this.ctx.cwd).last_activity) >= this.config.idleSeconds * 1000));
   }
@@ -103,7 +104,7 @@ export class Coordinator {
         if (!this.store.claim("session:" + this.current)) { this.progress = "observer · owned by another pi process"; this.render(); return; }
         if (previous) this.ctx.ui.notify(`Maintenance owner PID ${previous.pid} stopped; this instance has taken over.`, "warning");
       }
-      if (!this.ctx.isIdle() || this.ctx.hasPendingMessages() || this.store.otherBusy(this.ctx.cwd) || (!this.idle() && !this.budgetDue())) return;
+      if (this.localHolds || !this.ctx.isIdle() || this.ctx.hasPendingMessages() || this.store.otherBusy(this.ctx.cwd) || (!this.idle() && !this.budgetDue())) return;
       if (!existsSync(this.current)) { this.progress = "waiting for a saved conversation"; return; }
       const s = snapshot(this.current); const activeRecord = this.store.observe(s);
       if (!this.store.claim("executor:" + this.ctx.cwd)) { this.progress = "another maintenance executor is active"; this.render(); return; }
@@ -215,7 +216,7 @@ export class Coordinator {
     const promise = Promise.resolve().then(async () => {
       try {
         abort.signal.throwIfAborted();
-        if (this.closed || !this.enabled() || this.ctx!.hasPendingMessages() || !this.ctx!.isIdle() || this.store.control(this.ctx!.cwd).cancel_seq !== cancelSeq) return;
+        if (this.closed || this.localHolds || !this.enabled() || this.ctx!.hasPendingMessages() || !this.ctx!.isIdle() || this.store.control(this.ctx!.cwd).cancel_seq !== cancelSeq) return;
         if (stage === "compact") {
           // Never compact a stale in-memory session (e.g. another window wrote it).
           if (source.path !== this.current || hash(projectEntries(this.ctx!.sessionManager.getEntries())) !== source.hash) throw new Error("Compaction deferred: in-memory and saved conversation differ");
@@ -284,6 +285,16 @@ export class Coordinator {
     (record.errors ??= {})[stage] = { failures, retryAt: this.now() + Math.min(3600_000, 30_000 * 2 ** Math.min(failures - 1, 7)), error: (error as Error).message ?? String(error) };
     this.store.put(record); this.progress = `${stage} deferred: ${record.errors[stage]!.error}`;
   }
+  holdForSettings(): () => void {
+    this.localHolds++;
+    this.activity(); this.poll();
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true; this.localHolds--;
+      if (!this.closed) { this.lastActivity = this.now(); this.poll(); this.render(); }
+    };
+  }
   requestRun() { this.force = true; }
   async cancel() {
     this.running?.abort.abort(new Error("Maintenance cancelled"));
@@ -309,12 +320,26 @@ export class Coordinator {
     if (!this.ctx || s.cwd !== this.ctx.cwd) throw new Error("Backfill is limited to the current session working directory");
     this.store.observe(s);
   }
+  async configure(config: Config) {
+    if (config.stateDir !== this.config.stateDir) throw new Error("Changing stateDir requires reload");
+    await this.cancel();
+    if (this.closed) throw new Error("Maintenance runtime changed while applying settings");
+    clearInterval(this.timer); this.timer = undefined;
+    this.config = config;
+    this.activity(); this.start(); this.render();
+  }
   status() {
     const ctx = this.ctx;
-    return { enabled: this.enabled(), owner: this.current ? this.store.lease("session:" + this.current) : null,
+    const control = ctx ? this.store.control(ctx.cwd) : null;
+    return { enabled: this.enabled(), currentSession: this.current, currentSessionName: ctx?.sessionManager.getSessionName?.(),
+      ownsSession: this.current ? this.store.owns("session:" + this.current) : false,
+      foregroundBusy: ctx ? this.localHolds > 0 || !ctx.isIdle() || ctx.hasPendingMessages() : false,
+      peerBusy: ctx ? this.store.otherBusy(ctx.cwd) : false,
+      idleRemainingSeconds: this.force ? 0 : Math.max(0, Math.ceil((Math.max(this.lastActivity, control?.last_activity ?? 0) + this.config.idleSeconds * 1000 - this.now()) / 1000)),
+      owner: this.current ? this.store.lease("session:" + this.current) : null,
       running: this.running ? { stage: this.running.stage, path: this.running.path } : null,
       compactStarted: this.compactStart, progress: this.progress,
-      control: ctx ? this.store.control(ctx.cwd) : null, spentToday: this.store.spent(), config: this.config,
+      control, spentToday: this.store.spent(), config: this.config,
       sessions: ctx ? this.store.records(ctx.cwd) : [] };
   }
   private render() {

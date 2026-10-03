@@ -65,7 +65,14 @@ Idle duration is seconds; token limits are nonnegative safe integers (budget mus
 be positive). Unknown keys/invalid types fail rather than silently change behavior.
 `stateDir` optionally relocates the private ledger; its default is
 `~/.pi/agent/session-maintenance` (honors `PI_CODING_AGENT_DIR`). Changing settings
-on disk requires reload. `/maintenance settings` shows resolved configuration.
+on disk requires reload. `/maintenance settings` opens a human-readable editor
+in TUI/RPC: toggle stages, select models, enter durations/token limits/budgets, then
+**Save & apply**. Changes are saved to this cwd's `.pi/maintenance.json` and applied
+in the current instance without reload; other open instances load them on reload.
+Esc/Cancel discards the draft. `/maintenance settings show` (also the non-UI fallback)
+prints a readable overview. Storage location is read-only in the menu because
+changing the ledger path requires reload. Existing workspace off/suspension overrides
+survive other settings edits; explicitly enabling a disabled configuration clears off.
 
 Each scheduling opportunity performs at most one new model-backed section/step,
 then yields. Stages and summary calls are sequential (summary concurrency **1**).
@@ -79,7 +86,8 @@ scheduler is implemented; configure concurrency on your server.
 
 ```text
 /maintenance status             # ownership, stages, checkpoints, errors, cost
-/maintenance settings           # resolved settings and configuration path
+/maintenance settings           # interactive workspace editor; Save & apply or Cancel
+/maintenance settings show      # readable configuration overview without dialogs
 /maintenance run                # request work at safe idle, without waiting 10 minutes
 /maintenance cancel             # stop and suspend for one idle interval; retain checkpoints
 /maintenance suspend 30m        # timed workspace suspension (s/m/h/d accepted)
@@ -88,11 +96,17 @@ scheduler is implemented; configure concurrency on your server.
 /maintenance on                 # enable this runtime and clear workspace disable
 /maintenance retry              # clear stage backoff; queue work
 /maintenance backfill /path/to/session.jsonl
+/maintenance help               # human-readable commands and examples
 ```
 
-Tab completion is available. Footer status describes running/waiting/suspended
-work. Detailed status is bounded to 20 queue entries. There is no unsolicited model
-prompt or maintenance transcript appended to your focused conversation.
+Tab completion includes action descriptions. Every action reports what it changed;
+suspend/backfill can prompt for a missing argument when a UI is available. Status
+shows mode, ownership, idle timing, enabled/absent stages, approximate spend, named
+sessions' saved coverage and retry blockers—not a raw JSON dump. Coverage is bounded
+to eight sessions; the host API remains structured and complete. Footer status
+describes running/waiting/suspended work. The settings menu holds local/peer
+maintenance while open and does not call a model or resolve credentials. There is
+no unsolicited model prompt or maintenance transcript appended to your conversation.
 Foreground input/agent starts cancel background calls; TUI typing also takes
 priority. Participating windows in the same cwd publish busy state and interruption
 counters: peer input preempts owned background work within one polling interval,

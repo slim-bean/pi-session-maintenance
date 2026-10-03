@@ -174,6 +174,15 @@ test("leaving a session queues content written since its last maintenance tick",
   } finally { rmSync(f.dir, { recursive: true, force: true }); }
 });
 
+test("an open settings menu holds maintenance, including budget compaction", async () => {
+  const f = await fixture({ config: { compaction: { enabled: true, minTokens: 0, budgetTokens: 50000 } } });
+  const release = f.c.holdForSettings();
+  try {
+    f.advance(); f.c.requestRun(); await f.c.tick(); assert.deepEqual(f.calls, []);
+    release(); f.c.requestRun(); await f.c.tick(); assert.deepEqual(f.calls, ["compact"]);
+  } finally { release(); await f.close(); }
+});
+
 test("compaction refuses a stale in-memory view and budget compaction takes priority", async () => {
   const f = await fixture({ config: { compaction: { enabled: true, minTokens: 0, budgetTokens: 50000 } } });
   try {

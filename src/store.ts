@@ -7,7 +7,7 @@ import type { Snapshot } from "./source.ts";
 
 export interface Receipt { key: string; hash: string; at: number; detail?: unknown }
 export interface RecordState {
-  path: string; cwd: string; id: string; hash: string; seen: number;
+  path: string; cwd: string; id: string; name?: string; entryCount?: number; hash: string; seen: number;
   review?: Receipt; summary?: Receipt; compact?: Receipt;
   reviewModel?: string; summaryModel?: string;
   pushPending?: boolean;
@@ -55,9 +55,9 @@ export class Store {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const previous = this.get(s.path);
-      const record: RecordState = previous ? { ...previous, hash: s.hash, seen: this.now(), error: undefined,
+      const record: RecordState = previous ? { ...previous, name: s.name, entryCount: s.entries.length, hash: s.hash, seen: this.now(), error: undefined,
         ...(previous.hash !== s.hash ? { retryAt: 0, failures: 0, error: undefined, errors: {} } : {}) }
-        : { path: s.path, cwd: s.cwd, id: s.id, hash: s.hash, seen: this.now(), retryAt: 0, failures: 0 };
+        : { path: s.path, cwd: s.cwd, id: s.id, name: s.name, entryCount: s.entries.length, hash: s.hash, seen: this.now(), retryAt: 0, failures: 0 };
       this.put(record); this.db.exec("COMMIT"); return record;
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }

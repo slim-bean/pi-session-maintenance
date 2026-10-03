@@ -3,6 +3,8 @@ import { loadConfig, parseConfig, duration } from "./config.ts";
 import { Coordinator } from "./coordinator.ts";
 import { Store } from "./store.ts";
 import { discover } from "./protocol.ts";
+import { formatSettings, formatStatus, timeSpan } from "./format.ts";
+import { editSettings, saveSettings, settingsText, settingsFile } from "./settings.ts";
 
 export default function maintenance(pi: ExtensionAPI) {
   let coordinator: Coordinator | undefined;
@@ -43,31 +45,81 @@ export default function maintenance(pi: ExtensionAPI) {
     if (!coordinator) throw new Error(error ?? "Session maintenance is not initialized");
     return coordinator;
   };
-  const values = ["status", "settings", "run", "cancel", "suspend", "resume", "off", "on", "retry", "backfill"];
+  const descriptions: Record<string, string> = {
+    status: "Show ownership, work, coverage and blockers", settings: "Edit workspace settings interactively",
+    run: "Request work at the next safe idle opportunity", cancel: "Stop local work and suspend the workspace",
+    suspend: "Pause for a duration, e.g. 30m", resume: "Clear workspace suspension and begin a fresh idle interval",
+    off: "Disable this workspace", on: "Enable maintenance and clear workspace suspension",
+    retry: "Clear backoff and request another attempt", backfill: "Queue one saved session from this workspace",
+    help: "Show commands and examples",
+  };
+  const values = Object.keys(descriptions);
+  const help = () => "Session maintenance commands\n" + values.map((v) => `/maintenance ${v} — ${descriptions[v]}`).join("\n") +
+    "\n\nExamples: /maintenance suspend 30m · /maintenance settings · /maintenance backfill /path/to/session.jsonl";
   pi.registerCommand("maintenance", {
     description: "Session maintenance: status/settings/run/cancel/suspend/resume/off/on/retry/backfill",
     getArgumentCompletions(prefix) {
       const matches = values.filter((v) => v.startsWith(prefix)).map((value) => ({ value, label: value }));
-      return matches.length ? matches : null;
+      return matches.length ? matches.map((m) => ({ ...m, description: descriptions[m.value] })) : null;
     },
     async handler(args, commandCtx) {
       try {
         const c = requireCoordinator();
         const [action = "status", ...rest] = args.trim().split(/\s+/).filter(Boolean);
-        if (action === "status") {
-          const status = c.status();
-          commandCtx.ui.notify(JSON.stringify({ ...status, sessions: status.sessions.slice(0, 20), additionalSessions: Math.max(0, status.sessions.length - 20), capabilities: discover(pi.events) }, null, 2), "info");
+        if (action === "status") commandCtx.ui.notify(formatStatus(c.status(), discover(pi.events)), "info");
+        else if (action === "settings") {
+          if (!commandCtx.hasUI || rest[0] === "show") { commandCtx.ui.notify(formatSettings(c.config, commandCtx.cwd), "info"); return; }
+          if (rest.length) throw new Error("Use /maintenance settings to edit, or /maintenance settings show to inspect.");
+          const baseline = c.config;
+          const fingerprint = JSON.stringify(baseline);
+          const fileBefore = settingsText(commandCtx.cwd);
+          const assertCurrent = () => {
+            if (coordinator !== c || c.config !== baseline || JSON.stringify(c.config) !== fingerprint) throw new Error("Maintenance settings/session changed while the menu was open. Reopen settings; nothing was saved.");
+          };
+          const release = c.holdForSettings();
+          try {
+            if (c.status().control?.disabled || (c.status().control?.paused_until ?? 0) > Date.now()) {
+              commandCtx.ui.notify("A workspace off/suspension override is active. Editing other settings preserves it; /maintenance on or resume clears it.", "info");
+            }
+            const draft = await editSettings(commandCtx, baseline, assertCurrent);
+            if (!draft) { commandCtx.ui.notify("Settings cancelled; no configuration changes saved.", "info"); return; }
+            const apply = transition.then(async () => {
+              assertCurrent(); await c.cancel(); assertCurrent();
+              saveSettings(commandCtx.cwd, draft, fileBefore);
+              await c.configure(draft);
+              if (!draft.enabled) c.off();
+              else if (!baseline.enabled) c.on();
+            });
+            transition = apply.then(() => {}, () => {});
+            await apply;
+            commandCtx.ui.notify(`Settings saved to ${settingsFile(commandCtx.cwd)} and applied here. No reload needed in this instance; other open pi instances load them on /reload.`, "info");
+          } finally { release(); }
         }
-        else if (action === "settings") commandCtx.ui.notify(`Settings: ${commandCtx.cwd}/.pi/maintenance.json\n${JSON.stringify(c.config, null, 2)}`, "info");
-        else if (action === "run") { c.requestRun(); commandCtx.ui.notify("Maintenance queued; it waits for safe idle. No active agent turn is interrupted.", "info"); }
-        else if (action === "cancel") { await c.cancel(); c.suspend(c.config.idleSeconds); commandCtx.ui.notify("Maintenance stopped; checkpoints retained. Retry after the suspension or /maintenance resume.", "info"); }
-        else if (action === "suspend") c.suspend(duration(rest[0] ?? "30m"));
-        else if (action === "resume") c.resume();
-        else if (action === "off") c.off();
-        else if (action === "on") c.on();
-        else if (action === "retry") c.retry();
-        else if (action === "backfill" && rest.length) { c.enqueue(rest.join(" ")); commandCtx.ui.notify("Saved session queued. Source stays read-only; no compaction of archives.", "info"); }
-        else throw new Error(`Usage: /maintenance [${values.join("|")}]`);
+        else if (action === "run") {
+          const status = c.status();
+          if (status.owner && !status.ownsSession) { commandCtx.ui.notify(`PID ${status.owner.pid} owns this session's maintenance. Request a run in that window; this observer does not steal its work.`, "warning"); return; }
+          c.requestRun(); commandCtx.ui.notify("Maintenance queued; it waits for safe idle. No active agent turn is interrupted.", "info");
+        }
+        else if (action === "cancel") { await c.cancel(); c.suspend(c.config.idleSeconds); commandCtx.ui.notify(`Local work stopped; workspace suspended for ${timeSpan(c.config.idleSeconds)}. Other windows are asked to stop too. Completed checkpoints remain.`, "info"); }
+        else if (action === "suspend") {
+          const text = rest[0] ?? (commandCtx.hasUI ? await commandCtx.ui.input("Suspend maintenance for how long? (e.g. 30m, 2h)", "30m") : "30m");
+          if (text === undefined) return;
+          if (coordinator !== c) throw new Error("Session changed; retry suspension in the current session");
+          const seconds = duration(text.trim() || "30m"); c.suspend(seconds);
+          commandCtx.ui.notify(`Workspace maintenance paused for ${timeSpan(seconds)}. In-flight work is asked to stop; checkpoints remain. /maintenance resume clears the pause.`, "info");
+        }
+        else if (action === "resume") { c.resume(); commandCtx.ui.notify(`Workspace suspension/off cleared. ${c.config.enabled ? `Maintenance resumes after ${timeSpan(c.config.idleSeconds)} idle.` : "Maintenance is still disabled in settings."}`, "info"); }
+        else if (action === "off") { c.off(); commandCtx.ui.notify("Maintenance disabled for this workspace. In-flight work is asked to stop; /maintenance on enables it again.", "info"); }
+        else if (action === "on") { c.on(); commandCtx.ui.notify(`Maintenance enabled in this runtime; workspace overrides cleared. Work starts after ${timeSpan(c.config.idleSeconds)} idle.`, "info"); }
+        else if (action === "retry") { c.retry(); commandCtx.ui.notify("Retry backoff cleared; pending work is queued for safe idle. Completed work is retained.", "info"); }
+        else if (action === "backfill") {
+          const path = rest.length ? rest.join(" ") : commandCtx.hasUI ? await commandCtx.ui.input("Saved session JSONL path (current workspace only)", "/path/to/session.jsonl") : undefined;
+          if (!path) { if (!commandCtx.hasUI) throw new Error("Provide a path: /maintenance backfill /path/to/session.jsonl"); return; }
+          if (coordinator !== c) throw new Error("Session changed; retry backfill in the current session");
+          c.enqueue(path.trim()); commandCtx.ui.notify("Saved session queued. Its conversation stays read-only; archives are never compacted.", "info");
+        }
+        else if (action === "help") commandCtx.ui.notify(help(), "info");
+        else throw new Error(`Unknown maintenance action: ${action}\n\n${help()}`);
       } catch (e) { commandCtx.ui.notify((e as Error).message, "error"); }
     },
   });
@@ -78,13 +130,8 @@ export default function maintenance(pi: ExtensionAPI) {
       if (r.protocol !== 1) throw new Error("Unsupported maintenance control protocol");
       const c = requireCoordinator();
       if (r.operation === "configure") {
-        await c.cancel();
         const config = parseConfig(r.settings, ctx!.cwd);
-        // Durable state location is a startup setting; never move a live queue silently.
-        if (config.stateDir !== c.config.stateDir) throw new Error("Changing stateDir requires reload");
-        await c.close();
-        coordinator = new Coordinator(pi.events, new Store(config.stateDir), config);
-        await coordinator.attach(ctx!); coordinator.start();
+        await c.configure(config);
       } else if (r.operation === "suspend") c.suspend(duration(String(r.seconds ?? 1800)));
       else if (r.operation === "resume") c.resume();
       else if (r.operation === "cancel") await c.cancel();
