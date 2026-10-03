@@ -9,6 +9,8 @@ export interface Receipt { key: string; hash: string; at: number; detail?: unkno
 export interface RecordState {
   path: string; cwd: string; id: string; hash: string; seen: number;
   review?: Receipt; summary?: Receipt; compact?: Receipt;
+  pushPending?: boolean;
+  errors?: Partial<Record<"upgrade" | "review" | "summary" | "push" | "compact", { failures: number; retryAt: number; error: string }>>;
   retryAt: number; failures: number; error?: string;
 }
 export interface Lease { key: string; token: string; pid: number; host: string; heartbeat: number }
@@ -40,11 +42,14 @@ export class Store {
     this.db.prepare("INSERT OR REPLACE INTO sessions VALUES(?,?,?)").run(record.path, record.cwd, JSON.stringify(record));
   }
   observe(s: Snapshot): RecordState {
-    const previous = this.get(s.path);
-    const record: RecordState = previous ? { ...previous, hash: s.hash, seen: this.now(),
-      ...(previous.hash !== s.hash ? { retryAt: 0, failures: 0, error: undefined } : {}) }
-      : { path: s.path, cwd: s.cwd, id: s.id, hash: s.hash, seen: this.now(), retryAt: 0, failures: 0 };
-    this.put(record); return record;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const previous = this.get(s.path);
+      const record: RecordState = previous ? { ...previous, hash: s.hash, seen: this.now(), error: undefined,
+        ...(previous.hash !== s.hash ? { retryAt: 0, failures: 0, error: undefined, errors: {} } : {}) }
+        : { path: s.path, cwd: s.cwd, id: s.id, hash: s.hash, seen: this.now(), retryAt: 0, failures: 0 };
+      this.put(record); this.db.exec("COMMIT"); return record;
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
   records(cwd: string): RecordState[] {
     return (this.db.prepare("SELECT data FROM sessions WHERE cwd=? ORDER BY path").all(cwd) as { data: string }[]).map((r) => JSON.parse(r.data));

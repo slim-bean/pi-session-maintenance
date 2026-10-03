@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 
 export interface ConversationEntry {
   index: number; id: string; parentId: string | null; timestampMs: number | null;
@@ -14,16 +14,22 @@ const timestamp = (value: unknown): number | null => {
 /** Same all-branch text projection/fingerprint as pi-session-search. No source writes. */
 export function snapshot(path: string): Snapshot {
   path = realpathSync(path);
+  if (statSync(path).size > 128 * 1024 * 1024) throw new Error("Session exceeds the 128MiB source budget");
   const raw = readFileSync(path, "utf8");
-  if (Buffer.byteLength(raw) > 128 * 1024 * 1024) throw new Error("Session exceeds the 128MiB source budget");
   const lines = raw.split("\n").filter((line) => line.trim());
   const header = JSON.parse(lines.shift() ?? "");
   if (header?.type !== "session" || typeof header.cwd !== "string" || typeof header.id !== "string") throw new Error("Invalid pi session header");
+  const rawEntries = lines.map((line) => {
+    try { return JSON.parse(line); } catch { throw new Error("Incomplete/corrupt session JSONL; retry after the writer settles"); }
+  });
+  const entries = projectEntries(rawEntries);
+  return { path, id: header.id, cwd: header.cwd, hash: hash(entries), entries,
+    activity: entries.reduce((ms, e) => Math.max(ms, e.timestampMs ?? 0), 0) };
+}
+export function projectEntries(rawEntries: unknown[]): ConversationEntry[] {
   const entries: ConversationEntry[] = [];
   let index = 0;
-  for (const line of lines) {
-    let e: any;
-    try { e = JSON.parse(line); } catch { throw new Error("Incomplete/corrupt session JSONL; retry after the writer settles"); }
+  for (const e of rawEntries as any[]) {
     index++;
     const msg = e?.type === "message" ? e.message : null;
     if (msg?.role !== "user" && msg?.role !== "assistant") continue;
@@ -33,6 +39,5 @@ export function snapshot(path: string): Snapshot {
     entries.push({ index, id: typeof e.id === "string" ? e.id : "", parentId: typeof e.parentId === "string" ? e.parentId : null,
       timestampMs: timestamp(e.timestamp) ?? timestamp(msg.timestamp), role: msg.role, text });
   }
-  return { path, id: header.id, cwd: header.cwd, hash: hash(entries), entries,
-    activity: entries.reduce((ms, e) => Math.max(ms, e.timestampMs ?? 0), 0) };
+  return entries;
 }
