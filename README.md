@@ -57,7 +57,9 @@ Optional `.pi/maintenance.json` in the current working directory:
 }
 ```
 
-All fields are optional; omit model fields to use the active model. Default
+All fields are optional; omit model fields to pin each session's maintenance jobs
+to the active model when first processed. Later foreground model switches alone
+do not regenerate historical work; explicit model-setting changes do. Default
 compaction is **off**, and its between-turn `budgetTokens` trigger is absent.
 Idle duration is seconds; token limits are nonnegative safe integers (budget must
 be positive). Unknown keys/invalid types fail rather than silently change behavior.
@@ -92,7 +94,9 @@ Tab completion is available. Footer status describes running/waiting/suspended
 work. Detailed status is bounded to 20 queue entries. There is no unsolicited model
 prompt or maintenance transcript appended to your focused conversation.
 Foreground input/agent starts cancel background calls; TUI typing also takes
-priority. Timers only start at session_start in trusted working directories.
+priority. Participating windows in the same cwd publish busy state and interruption
+counters: peer input preempts owned background work within one polling interval,
+without stealing its lease. Peer progress is visible in the shared status ledger. Timers only start at session_start in trusted working directories.
 Cancel is cooperative, **not rollback**: validated commits and completed summary
 sections remain. Ownership is held until operations actually stop, including push
 process exit. Synchronous bounded OKF/Git calls can briefly occupy the event loop.
@@ -115,7 +119,8 @@ process exit. Synchronous bounded OKF/Git calls can briefly occupy the event loo
   Closing every participating pi instance stops work; opening pi resumes scheduling.
 - Archives get knowledge review and summary only, **never background compaction**.
   Compaction is limited to the current owned, idle session and verifies that its
-  in-memory conversation matches the file. Native threshold/overflow recovery is
+  in-memory conversation matches the file and no unresolved tool calls remain on
+  the compaction-aware active branch. Native threshold/overflow recovery is
   not intercepted. Budget-triggered maintenance compaction has priority over backlog.
 
 All branches are included in both review and summary. Branch alternatives are not
@@ -127,7 +132,9 @@ not just timestamps. Summary caches reuse unchanged sections; review journals re
 validated/committed sections. A new source revision remains pending even if work
 on an older snapshot just finished.
 
-Stages retry independently with exponential backoff capped at one hour. Failed
+Stages retry independently with exponential backoff capped at one hour. Native
+maintenance compaction requests abort after a three-minute watchdog; it never kills
+pi or releases a still-running operation early. Failed
 pushes/finalization do not cause new extraction calls. A missing/oversized corpus,
 unsupported model, governance-sensitive repair, failed validation or unresolved Git
 conflict is a visible blocker, not an invented success. Knowledge uses attributed

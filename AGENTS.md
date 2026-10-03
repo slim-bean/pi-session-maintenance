@@ -7,6 +7,9 @@ Read README.md. Capability-driven maintenance, not a browser or knowledge implem
 - Source conversations are read-only except native compaction of the current owned session.
 - All branches belong in knowledge/search inputs. Do not treat off-branch as rejected.
 - SQLite holds queue, receipts, controls, spend and advisory ownership. Never steal live/foreign owners based on age.
+- Same-cwd participants publish busy state and interruption counters; poll them even during a running job. Keep progress visible and leases held until real stop.
+- Pin default maintenance models per session; only explicit settings/policy changes invalidate fresh model-keyed work.
+- Native compaction is active-owner-only, checks file/in-memory agreement and compaction-aware tool pairing, and has a cooperative abort watchdog (never kill pi).
 - Use documented versioned event contracts; no imports of sibling projects' private modules.
 - Foreground input cancels background calls. Retain leases until operations have actually stopped.
 - Keep corpus operations inside the OKF adapter, including validation, automatic commits and configured non-force pushes.

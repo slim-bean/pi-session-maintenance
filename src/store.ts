@@ -9,7 +9,9 @@ export interface Receipt { key: string; hash: string; at: number; detail?: unkno
 export interface RecordState {
   path: string; cwd: string; id: string; hash: string; seen: number;
   review?: Receipt; summary?: Receipt; compact?: Receipt;
+  reviewModel?: string; summaryModel?: string;
   pushPending?: boolean;
+  active?: { stage: string; owner: string; pid: number; started: number; progress: string };
   errors?: Partial<Record<"upgrade" | "review" | "summary" | "push" | "compact", { failures: number; retryAt: number; error: string }>>;
   retryAt: number; failures: number; error?: string;
 }
@@ -32,7 +34,15 @@ export class Store {
       CREATE TABLE IF NOT EXISTS leases(key TEXT PRIMARY KEY, token TEXT NOT NULL, pid INTEGER NOT NULL, host TEXT NOT NULL, heartbeat INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS controls(cwd TEXT PRIMARY KEY, paused_until INTEGER NOT NULL DEFAULT 0, disabled INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS spend(day TEXT PRIMARY KEY, cost REAL NOT NULL);
+      CREATE TABLE IF NOT EXISTS participants(token TEXT PRIMARY KEY, cwd TEXT NOT NULL, pid INTEGER NOT NULL, host TEXT NOT NULL, busy INTEGER NOT NULL);
     `);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const columns = this.db.prepare("PRAGMA table_info(controls)").all() as { name: string }[];
+      if (!columns.some((c) => c.name === "cancel_seq")) this.db.exec("ALTER TABLE controls ADD COLUMN cancel_seq INTEGER NOT NULL DEFAULT 0");
+      if (!columns.some((c) => c.name === "last_activity")) this.db.exec("ALTER TABLE controls ADD COLUMN last_activity INTEGER NOT NULL DEFAULT 0");
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); this.db.close(); throw error; }
   }
   get(path: string): RecordState | undefined {
     const row = this.db.prepare("SELECT data FROM sessions WHERE path=?").get(path) as { data: string } | undefined;
@@ -69,11 +79,21 @@ export class Store {
   owns(key: string): boolean { return this.lease(key)?.token === this.owner; }
   release(key: string) { this.db.prepare("DELETE FROM leases WHERE key=? AND token=?").run(key, this.owner); }
   heartbeat() { this.db.prepare("UPDATE leases SET heartbeat=? WHERE token=?").run(this.now(), this.owner); }
-  control(cwd: string): { paused_until: number; disabled: number } {
-    return this.db.prepare("SELECT paused_until,disabled FROM controls WHERE cwd=?").get(cwd) as any ?? { paused_until: 0, disabled: 0 };
+  control(cwd: string): { paused_until: number; disabled: number; cancel_seq: number; last_activity: number } {
+    return this.db.prepare("SELECT paused_until,disabled,cancel_seq,last_activity FROM controls WHERE cwd=?").get(cwd) as any ?? { paused_until: 0, disabled: 0, cancel_seq: 0, last_activity: 0 };
   }
   setControl(cwd: string, pauseUntil: number, disabled: boolean) {
-    this.db.prepare("INSERT OR REPLACE INTO controls VALUES(?,?,?)").run(cwd, pauseUntil, disabled ? 1 : 0);
+    this.db.prepare("INSERT INTO controls(cwd,paused_until,disabled) VALUES(?,?,?) ON CONFLICT(cwd) DO UPDATE SET paused_until=excluded.paused_until,disabled=excluded.disabled").run(cwd, pauseUntil, disabled ? 1 : 0);
+  }
+  interrupt(cwd: string) {
+    this.db.prepare("INSERT INTO controls(cwd,cancel_seq,last_activity) VALUES(?,1,?) ON CONFLICT(cwd) DO UPDATE SET cancel_seq=cancel_seq+1,last_activity=excluded.last_activity").run(cwd, this.now());
+  }
+  presence(cwd: string, busy: boolean) {
+    this.db.prepare("INSERT OR REPLACE INTO participants VALUES(?,?,?,?,?)").run(this.owner, cwd, process.pid, hostname(), busy ? 1 : 0);
+  }
+  otherBusy(cwd: string): boolean {
+    const rows = this.db.prepare("SELECT token,pid,host FROM participants WHERE cwd=? AND token!=? AND busy=1").all(cwd, this.owner) as { token: string; pid: number; host: string }[];
+    return rows.some((r) => r.host !== hostname() || this.isAlive(r.pid));
   }
   day() { return new Date(this.now()).toISOString().slice(0, 10); }
   spent(): number { return (this.db.prepare("SELECT cost FROM spend WHERE day=?").get(this.day()) as { cost: number } | undefined)?.cost ?? 0; }
@@ -83,6 +103,7 @@ export class Store {
   }
   close() {
     this.db.prepare("DELETE FROM leases WHERE token=?").run(this.owner);
+    this.db.prepare("DELETE FROM participants WHERE token=?").run(this.owner);
     this.db.close();
   }
 }

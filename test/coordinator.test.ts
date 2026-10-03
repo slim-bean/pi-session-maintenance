@@ -120,6 +120,60 @@ test("foreground cancellation retains ownership until the actual background oper
   } finally { finish(); await f.close(); }
 });
 
+test("default maintenance models are pinned, rather than changing with foreground model switches", async () => {
+  const f = await fixture({ memory: false, config: { compaction: { enabled: false } } });
+  try {
+    f.ctx.model = { provider: "fake", id: "first" };
+    f.advance(); await f.c.tick();
+    assert.equal(f.store.get(f.path)!.summaryModel, "fake/first");
+    f.ctx.model = { provider: "fake", id: "second" };
+    await f.c.tick();
+    assert.equal(f.store.get(f.path)!.summaryModel, "fake/first");
+    assert.deepEqual(f.calls, ["run"]);
+  } finally { await f.close(); }
+});
+
+test("another window can preempt owned background work and see its progress", async () => {
+  const f = await fixture({ memory: false, config: { compaction: { enabled: false } } });
+  const peerStore = new Store(f.c.config.stateDir, f.c.now);
+  const peer = new Coordinator(f.bus, peerStore, f.c.config, f.c.now);
+  let started!: () => void; let finish!: () => void;
+  const ready = new Promise<void>((r) => { started = r; });
+  const done = new Promise<void>((r) => { finish = r; });
+  const original = f.bus.emit;
+  f.bus.emit = (channel, r) => {
+    if (channel === "summary" && r.operation === "run") {
+      r.result = (async () => { r.onProgress("summary in progress"); started(); await done; r.signal.throwIfAborted(); return { key: "summary:1", complete: true }; })();
+    } else original(channel, r);
+  };
+  try {
+    await peer.attach(f.ctx);
+    f.advance(); const tick = f.c.tick(); await ready;
+    assert.equal(peerStore.get(f.path)!.active!.progress, "summary in progress");
+    peer.activity(); f.c.poll();
+    assert.equal(f.store.owns("executor:" + f.dir), true);
+    finish(); await tick;
+    assert.equal(f.store.get(f.path)!.summary, undefined);
+    assert.equal(peerStore.get(f.path)!.active, undefined);
+  } finally { finish(); await peer.close(); await f.close(); }
+});
+
+test("leaving a session queues content written since its last maintenance tick", async () => {
+  const f = await fixture();
+  try {
+    const before = f.store.get(f.path)!.hash;
+    f.entries.push({ type: "message", id: "new", message: { role: "user", content: "last topic before /new" } });
+    f.save();
+    await f.c.close();
+    const reopened = new Store(f.c.config.stateDir);
+    assert.notEqual(reopened.get(f.path)!.hash, before);
+    assert.equal(reopened.records(f.dir).length, 1);
+    assert.equal(reopened.lease("session:" + f.path), undefined);
+    reopened.close();
+    assert.deepEqual(f.calls, []);
+  } finally { rmSync(f.dir, { recursive: true, force: true }); }
+});
+
 test("compaction refuses a stale in-memory view and budget compaction takes priority", async () => {
   const f = await fixture({ config: { compaction: { enabled: true, minTokens: 0, budgetTokens: 50000 } } });
   try {
