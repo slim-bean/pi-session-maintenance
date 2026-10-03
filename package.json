@@ -1,0 +1,15 @@
+{
+  "name": "pi-session-maintenance",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Capability-driven idle session maintenance: memory, search summaries and optional compaction.",
+  "license": "MIT",
+  "keywords": ["pi-package", "sessions", "maintenance"],
+  "engines": { "node": ">=22.18" },
+  "pi": { "extensions": ["./src/index.ts"] },
+  "scripts": { "test": "tsx --test test/*.test.ts", "typecheck": "scripts/typecheck.sh" },
+  "devDependencies": { "@types/node": "^24.0.0", "tsx": "^4.20.0", "typescript": "^5.9.0" },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "*" },
+  "peerDependenciesMeta": { "@earendil-works/pi-coding-agent": { "optional": true } }
+}
