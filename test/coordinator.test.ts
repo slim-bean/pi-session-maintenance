@@ -9,7 +9,7 @@ import { Store } from "../src/store.ts";
 
 async function fixture(options: any = {}) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "maintenance-flow-")));
-  let clock = 1000; let idle = true; let pending = false; let upgraded = false; let tokens = 60000;
+  let clock = 1000; let idle = true; let pending = false; let upgraded = options.upgraded ?? false; let tokens = 60000;
   const path = join(dir, "session.jsonl");
   const entries: any[] = [{ type: "message", id: "a", parentId: null, message: { role: "user", content: "a useful decision" } }];
   const save = (target = path) => writeFileSync(target, [{ type: "session", id: target, cwd: dir }, ...entries].map((e) => JSON.stringify(e)).join("\n") + "\n");
@@ -30,12 +30,12 @@ async function fixture(options: any = {}) {
       return;
     }
     if (r.operation === "status") {
-      r.result = Promise.resolve(channel === "memory" ? { available: true, upgraded, key: "memory:1" } : { key: "summary:1", complete: false }); return;
+      r.result = Promise.resolve(channel === "memory" ? { available: true, upgraded, key: "memory:1", orphanPolicy: options.orphanPolicy } : { key: "summary:1", complete: false }); return;
     }
     calls.push(r.operation);
     r.assertSource();
     r.result = Promise.resolve().then(() => {
-      if (options.fail === r.operation) throw new Error("synthetic failure");
+      if (options.fail === r.operation) throw Object.assign(new Error("synthetic failure"), options.issue ?? {});
       if (r.operation === "upgrade") upgraded = true;
       r.onUsage({ cost: { total: options.cost ?? 0.01 } });
       return { key: channel === "memory" ? "memory:1" : "summary:1", complete: true };
@@ -64,6 +64,21 @@ test("idle flow upgrades, reviews, summarizes, compacts once; resumed conversati
     f.save(); f.c.activity(); await f.c.tick(); assert.equal(f.calls.length, 4);
     f.advance(); await f.c.tick(); assert.equal(f.calls.at(-1), "review");
   } finally { await f.close(); }
+});
+
+test("policy changes re-admit orphan-only saved plans, while strict mode keeps their blocker", async () => {
+  for (const policy of ["strict", "advisory"]) {
+    const f = await fixture({ upgraded: true, summary: false, orphanPolicy: policy, config: { compaction: { enabled: false } } });
+    try {
+      const r = f.store.get(f.path)!;
+      r.errors = { review: { failures: 27, retryAt: f.c.now() + 3600_000, error: "Memory validation failed; planned changes retained for retry: " + JSON.stringify({
+        ok: false, exitCode: 1, validation: { bundle_path: join(f.dir, "knowledge"), is_conformant: true, gate_passed: false,
+          errors: [], warnings: [], gate_findings: [], broken_links: null, orphans: ["one", "two"], stale_count: 0 } }) } };
+      f.store.put(r); f.advance(); await f.c.tick();
+      if (policy === "advisory") { assert.deepEqual(f.calls, ["review"]); assert.ok(f.store.get(f.path)!.review); }
+      else { assert.deepEqual(f.calls, []); assert.equal(f.store.get(f.path)!.review, undefined); assert.equal(f.footers.at(-1), "🧹 block 1"); }
+    } finally { await f.close(); }
+  }
 });
 
 test("missing optional packages skip their stages; archives never compact", async () => {
@@ -115,6 +130,18 @@ test("failed knowledge does not prevent summaries; daily budget bounds further m
     assert.deepEqual(f.calls, ["upgrade", "review", "run"]);
     assert.match(f.store.get(f.path)!.errors!.review!.error, /synthetic/);
     await f.c.tick(); assert.equal(f.calls.length, 3);
+  } finally { await f.close(); }
+});
+
+test("routine typed deferrals wait without incrementing error counts", async () => {
+  const f = await fixture({ upgraded: true, summary: false, fail: "review",
+    issue: { maintenanceIssue: 1, kind: "deferred", code: "bundle-lock", resource: "shared-bundle" },
+    config: { compaction: { enabled: false } } });
+  try {
+    f.advance(); await f.c.tick();
+    const issue = f.store.get(f.path)!.errors!.review!;
+    assert.equal(issue.kind, "deferred"); assert.equal(issue.failures, 0);
+    assert.equal(f.footers.at(-1), "🧹 wait 1");
   } finally { await f.close(); }
 });
 

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 import type { Snapshot } from "./source.ts";
+import { normalizeRecord, type Issue } from "./issues.ts";
 
 export interface Receipt { key: string; hash: string; at: number; detail?: unknown }
 export interface RecordState {
@@ -12,7 +13,7 @@ export interface RecordState {
   reviewModel?: string; summaryModel?: string;
   pushPending?: boolean;
   active?: { stage: string; owner: string; pid: number; started: number; progress: string };
-  errors?: Partial<Record<"upgrade" | "review" | "summary" | "push" | "compact", { failures: number; retryAt: number; error: string }>>;
+  errors?: Partial<Record<"upgrade" | "review" | "summary" | "push" | "compact", Issue>>;
   retryAt: number; failures: number; error?: string;
 }
 export interface Lease { key: string; token: string; pid: number; host: string; heartbeat: number }
@@ -46,7 +47,7 @@ export class Store {
   }
   get(path: string): RecordState | undefined {
     const row = this.db.prepare("SELECT data FROM sessions WHERE path=?").get(path) as { data: string } | undefined;
-    return row ? JSON.parse(row.data) : undefined;
+    return row ? normalizeRecord(JSON.parse(row.data)) : undefined;
   }
   put(record: RecordState) {
     this.db.prepare("INSERT OR REPLACE INTO sessions VALUES(?,?,?)").run(record.path, record.cwd, JSON.stringify(record));
@@ -62,7 +63,7 @@ export class Store {
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
   records(cwd: string): RecordState[] {
-    return (this.db.prepare("SELECT data FROM sessions WHERE cwd=? ORDER BY path").all(cwd) as { data: string }[]).map((r) => JSON.parse(r.data));
+    return (this.db.prepare("SELECT data FROM sessions WHERE cwd=? ORDER BY path").all(cwd) as { data: string }[]).map((r) => normalizeRecord(JSON.parse(r.data)));
   }
   lease(key: string): Lease | undefined { return this.db.prepare("SELECT * FROM leases WHERE key=?").get(key) as unknown as Lease | undefined; }
   claim(key: string): boolean {

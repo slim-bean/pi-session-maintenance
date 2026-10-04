@@ -129,7 +129,8 @@ Labels are derived from current state on each poll/input, not old progress messa
 | `🧹 upd` / `review 2/6` / `sum 3/8` | Upgrade / knowledge review / search summary |
 | `🧹 compact` / `push` / `stop…` | Compaction / Git push / waiting for cancellation to finish |
 | `🧹 off` / `pause 30m` / `settings` | Disabled / timed pause / settings editor open |
-| `🧹 budget` / `err 2` / `new` | Daily budget reached / recorded blockers / no session path |
+| `🧹 budget` / `err 2` / `new` | Daily budget reached / actual error groups / no session path |
+| `🧹 block 1` / `wait 1` | Distinct blocking resource / routine deferral (shared resources counted once) |
 
 `ready` means no worker is currently running here, not that every adapter's work
 is proven fresh. `/maintenance status` supplies coverage, blockers and ownership.
@@ -166,8 +167,21 @@ not just timestamps. Summary caches reuse unchanged sections; review journals re
 validated/committed sections. A new source revision remains pending even if work
 on an older snapshot just finished.
 
-Stages retry independently with exponential backoff capped at one hour. Native
-maintenance compaction requests abort after a three-minute watchdog; it never kills
+Stages retry independently. Actual errors and blocking conditions use exponential
+backoff capped at one hour; routine deferrals (busy bundles, stale snapshots or tool
+pairing) wait one polling interval without accumulating failure counts. Structured
+adapter issues identify kind, stable code and canonical resource. A shared knowledge
+bundle blocker affecting six sessions is counted **once**, with all affected reviews
+shown in status, not as six independent execution failures.
+
+Successful OKF reviews can retain non-blocking validation advisories. Independent
+concepts do not require invented relationships; schema, index/drift, broken links,
+governance/provenance and stale-data findings remain blocking. Old orphan-only strict
+validation records are classified without deleting receipts/plans; when the updated
+adapter reports advisory policy, those plans are re-admitted for real validation and
+Git finalization. They are never marked complete merely because policy changed.
+
+Native maintenance compaction requests abort after a three-minute watchdog; it never kills
 pi or releases a still-running operation early. Failed
 pushes/finalization do not cause new extraction calls. A missing/oversized corpus,
 unsupported model, governance-sensitive repair, failed validation or unresolved Git

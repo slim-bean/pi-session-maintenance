@@ -2,7 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Snapshot } from "./source.ts";
 export interface Capability { protocol: 1; channel: string }
 export interface Capabilities { memory?: Capability; summary?: Capability }
-export interface Outcome { key: string; complete?: boolean; available?: boolean; upgraded?: boolean; detail?: unknown; bundle?: string }
+export interface Outcome { key: string; complete?: boolean; available?: boolean; upgraded?: boolean; detail?: unknown; bundle?: string; orphanPolicy?: "advisory" | "strict" }
 export interface TaskRequest {
   protocol: 1; operation: "status" | "upgrade" | "review" | "push" | "run";
   context: ExtensionContext; cwd: string; path: string; sourceHash: string; source: Snapshot;

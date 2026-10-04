@@ -31,7 +31,7 @@ test("off, suspension, observers, absent packages and errors have clear messages
   assert.match(formatStatus(s, {}, now), /Observer/); assert.match(formatStatus(s, {}, now), /package not loaded/);
   s.sessions[0]!.errors = { summary: { failures: 1, retryAt: now + 30_000, error: "provider unavailable\nretry later\u001b[31m" } };
   const text = formatStatus(s, caps, now);
-  assert.match(text, /Search summary retry in 30s: provider unavailable retry later/);
+  assert.match(text, /Search summary error, retry in 30s: provider unavailable retry later/);
   assert.equal(text.includes("\u001b"), false);
 });
 test("coverage list is bounded and disabled compaction is described in settings", () => {

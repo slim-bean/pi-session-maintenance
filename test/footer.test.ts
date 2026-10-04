@@ -14,6 +14,7 @@ test("footer blocks are emoji-led, terse and have no internal dot separator", ()
     [{ enabled: false }, "🧹 off"], [{ pausedUntil: 1_801_000 }, "🧹 pause 30m"],
     [{ settingsOpen: true }, "🧹 settings"], [{ savedSession: false }, "🧹 new"],
     [{ budgetReached: true }, "🧹 budget"], [{ errors: 2 }, "🧹 err 2"],
+    [{ blockers: 1 }, "🧹 block 1"], [{ deferrals: 1 }, "🧹 wait 1"],
     [{ running: { stage: "summary", progress: "summary: 3/12 sections", stopping: false } }, "🧹 sum 3/12"],
     [{ running: { stage: "review", progress: "knowledge: 2/6 sections validated and committed", stopping: false } }, "🧹 review 2/6"],
     [{ running: { stage: "upgrade", progress: "upgrade · private-session-file.jsonl", stopping: false } }, "🧹 upd"],

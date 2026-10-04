@@ -7,6 +7,7 @@ import { discover, invoke, type Bus, type TaskRequest } from "./protocol.ts";
 import { Store, type RecordState } from "./store.ts";
 import { unresolvedTools } from "./pairing.ts";
 import { formatFooter } from "./footer.ts";
+import { classify, groupedIssues, maintenanceIssue } from "./issues.ts";
 
 type Stage = "upgrade" | "review" | "summary" | "push" | "compact";
 export class Coordinator {
@@ -155,6 +156,16 @@ export class Coordinator {
               try { memoryStatus = await invoke(this.bus, caps.memory.channel, statusRequest(this.config.reviewModel ?? current.reviewModel)); }
               catch (error) { this.fail(current, "upgrade", error); }
             }
+            if (memoryStatus?.orphanPolicy === "advisory") {
+              for (const stage of ["review", "upgrade"] as const) {
+                const issue = current.errors?.[stage];
+                if (issue?.code !== "orphan-policy-legacy") continue;
+                // Re-admit a saved plan after a proven policy change; not a completion receipt.
+                issue.kind = "deferred"; issue.code = "validation-policy-changed"; issue.retryAt = 0;
+                issue.message = "Validation policy updated; saved plan queued for revalidation and Git finalization.";
+                this.store.put(current);
+              }
+            }
             if (generation !== this.generation || this.closed || !this.idle() || this.store.control(this.ctx.cwd).cancel_seq !== cancelSeq) return;
             const due = (stage: Stage) => (current.errors?.[stage]?.retryAt ?? 0) <= this.now();
             if (caps.memory && memoryStatus?.available && !memoryStatus.upgraded && this.config.upgrades && due("upgrade")) {
@@ -184,8 +195,8 @@ export class Coordinator {
             }
           } finally { if (source.path !== this.current) this.store.release(leaseKey); }
         }
-        const blocked = this.store.records(this.ctx.cwd).filter((r) => r.error || Object.keys(r.errors ?? {}).length).length;
-        this.progress = blocked ? `${blocked} session(s) have deferred/blocked work · /maintenance status` : "up to date";
+        const groups = groupedIssues(this.store.records(this.ctx.cwd));
+        this.progress = groups.length ? `${groups.length} distinct maintenance issue(s); /maintenance status` : "up to date";
         this.force = false;
       } finally { this.store.release("executor:" + this.ctx.cwd); this.render(); }
     } finally { this.tickRunning = false; this.render(); }
@@ -199,7 +210,7 @@ export class Coordinator {
       assertSource: () => {
         signal.throwIfAborted();
         const fresh = snapshot(s.path);
-        if (!this.enabled() || (this.running && this.store.control(this.ctx!.cwd).cancel_seq !== this.running.cancelSeq) || !this.store.owns("session:" + s.path) || fresh.hash !== s.hash || fresh.id !== s.id || fresh.cwd !== s.cwd) throw new Error("Source changed, maintenance suspended, or ownership lost; deferred");
+        if (!this.enabled() || (this.running && this.store.control(this.ctx!.cwd).cancel_seq !== this.running.cancelSeq) || !this.store.owns("session:" + s.path) || fresh.hash !== s.hash || fresh.id !== s.id || fresh.cwd !== s.cwd) throw maintenanceIssue("deferred", "source-changed", s.path, "Source changed, maintenance suspended, or ownership lost; waiting for a safe snapshot.");
       },
       onUsage: (usage) => {
         const cost = usage?.cost?.total ?? 0;
@@ -230,9 +241,9 @@ export class Coordinator {
         if (this.closed || this.localHolds || !this.enabled() || this.ctx!.hasPendingMessages() || !this.ctx!.isIdle() || this.store.control(this.ctx!.cwd).cancel_seq !== cancelSeq) return;
         if (stage === "compact") {
           // Never compact a stale in-memory session (e.g. another window wrote it).
-          if (source.path !== this.current || hash(projectEntries(this.ctx!.sessionManager.getEntries())) !== source.hash) throw new Error("Compaction deferred: in-memory and saved conversation differ");
+          if (source.path !== this.current || hash(projectEntries(this.ctx!.sessionManager.getEntries())) !== source.hash) throw maintenanceIssue("deferred", "stale-context", source.path, "Compaction deferred: in-memory and saved conversation differ");
           const branch = this.ctx!.sessionManager.getBranch?.() ?? this.ctx!.sessionManager.getEntries();
-          if (unresolvedTools(branch)) throw new Error("Compaction deferred: unresolved tool calls on the current context branch");
+          if (unresolvedTools(branch)) throw maintenanceIssue("deferred", "tool-pairing", source.path, "Compaction deferred: unresolved tool calls on the current context branch");
           if (this.ctx!.hasPendingMessages() || !this.ctx!.isIdle()) return;
           const before = source.hash;
           const key = this.compactKey();
@@ -292,9 +303,12 @@ export class Coordinator {
   }
   private fail(record: RecordState, stage: Stage, error: unknown) {
     const old = record.errors?.[stage];
-    const failures = (old?.failures ?? 0) + 1;
-    (record.errors ??= {})[stage] = { failures, retryAt: this.now() + Math.min(3600_000, 30_000 * 2 ** Math.min(failures - 1, 7)), error: (error as Error).message ?? String(error) };
-    this.store.put(record); this.progress = `${stage} deferred: ${record.errors[stage]!.error}`;
+    const info = classify(error);
+    const failures = info.kind === "deferred" ? 0 : (old?.failures ?? 0) + 1;
+    const delay = info.kind === "deferred" ? Math.max(5000, this.config.pollSeconds * 1000) : Math.min(3600_000, 30_000 * 2 ** Math.min(failures - 1, 7));
+    (record.errors ??= {})[stage] = { failures, retryAt: this.now() + delay, error: (error as Error).message ?? String(error),
+      kind: info.kind, code: info.code, resource: info.resource, detail: info.detail, message: info.message };
+    this.store.put(record); this.progress = `${stage} ${info.kind}: ${info.message}`;
   }
   holdForSettings(): () => void {
     this.localHolds++;
@@ -363,10 +377,10 @@ export class Coordinator {
     // No source-file parsing, capability probes or model calls on the render path.
     // Query receipts only while idle, not on every foreground keystroke.
     const records = !foregroundBusy && !this.running ? this.store.records(this.ctx.cwd) : [];
-    const errors = records.filter((r) => r.error || Object.entries(r.errors ?? {}).some(([stage]) =>
+    const groups = groupedIssues(records, (stage, r) =>
       stage === "review" ? this.config.knowledge : stage === "summary" ? this.config.summaries :
       stage === "upgrade" ? this.config.upgrades : stage === "push" ? this.config.push :
-      this.config.compaction.enabled && r.path === this.current)).length;
+      this.config.compaction.enabled && r.path === this.current);
     const text = formatFooter({
       enabled: this.config.enabled && !c.disabled, pausedUntil: c.paused_until, now,
       running: this.running ? { stage: this.running.stage, progress: this.progress, stopping: this.running.abort.signal.aborted } : undefined,
@@ -374,7 +388,9 @@ export class Coordinator {
       settingsOpen: this.localHolds > 0, foregroundBusy, peerBusy: this.store.otherBusy(this.ctx.cwd),
       executorPid: executor && executor.token !== this.store.owner ? executor.pid : undefined,
       savedSession: Boolean(this.current), budgetReached: this.store.spent() >= this.config.dailyBudget,
-      errors: Math.max(this.footerError ? 1 : 0, errors),
+      errors: Math.max(this.footerError ? 1 : 0, groups.filter((g) => g.kind === "error").length),
+      blockers: groups.filter((g) => g.kind === "blocked").length,
+      deferrals: groups.filter((g) => g.kind === "deferred").length,
       idleRemainingSeconds: this.force ? 0 : Math.max(0, Math.ceil((Math.max(this.lastActivity, c.last_activity) + this.config.idleSeconds * 1000 - now) / 1000)),
     });
     if (text !== this.lastFooter) { this.ctx.ui.setStatus("maintenance", text); this.lastFooter = text; }

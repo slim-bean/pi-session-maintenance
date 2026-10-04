@@ -4,6 +4,7 @@ import type { Config } from "./config.ts";
 import type { Coordinator } from "./coordinator.ts";
 import type { Capabilities } from "./protocol.ts";
 import type { RecordState, Receipt } from "./store.ts";
+import { groupedIssues } from "./issues.ts";
 
 export type Status = ReturnType<Coordinator["status"]>;
 const clean = (text: string, max = 200) => {
@@ -76,15 +77,40 @@ export function formatStatus(status: Status, caps: Capabilities, now = Date.now(
     (cfg.summaries && caps.summary && r.summary?.hash !== r.hash) ||
     (cfg.push && r.pushPending));
   const pending = records.filter(needsCoverage).length;
-  const blocked = records.filter((r) => r.error || relevantErrors(r, status, caps).length).length;
+  const groups = groupedIssues(records, (stage, r) => relevantErrors(r, status, caps).some(([s]) => s === stage));
+  const advisoryNotes = new Map<string, { at: number; message: string }>();
+  for (const r of records) {
+    const detail = r.review?.detail as { bundle?: string; advisories?: { code: string; message: string }[] } | undefined;
+    if (!r.review || !Array.isArray(detail?.advisories)) continue;
+    for (const note of detail.advisories) {
+      if (typeof note?.message !== "string" || typeof note.code !== "string") continue;
+      const key = JSON.stringify([detail.bundle ?? r.cwd, note.code]);
+      if ((advisoryNotes.get(key)?.at ?? -1) <= r.review.at) advisoryNotes.set(key, { at: r.review.at, message: note.message });
+    }
+  }
   const lines = [
     `Session maintenance · ${mode}`, `State: ${state}`, `Owner: ${owner}`,
     `Stages: ${stages.join(" · ")}`,
     `Schedule: after ${timeSpan(cfg.idleSeconds)} idle · check every ${timeSpan(cfg.pollSeconds)}`,
     `Budget: ${money(status.spentToday)} / ${money(cfg.dailyBudget)} today · ${money(cfg.maxCostPerCycle)} per opportunity (approx.)`,
-    `Sessions: ${records.length} observed · ${pending} need saved coverage${blocked ? ` · ${blocked} with blockers` : ""}`,
+    `Sessions: ${records.length} observed · ${pending} need saved coverage`,
+    `Issues: ${groups.filter((g) => g.kind === "error").length} errors · ${groups.filter((g) => g.kind === "blocked").length} blockers · ${groups.filter((g) => g.kind === "deferred").length} waiting`,
   ];
   if (status.progress && status.progress !== "waiting for idle") lines.push(`Latest: ${clean(status.progress, 240)}`);
+  if (groups.length) {
+    lines.push("", "Maintenance issues (shared resources counted once)");
+    for (const g of groups.slice(0, 8)) {
+      const kind = g.kind === "deferred" ? "Waiting" : g.kind === "blocked" ? "Blocked" : "Error";
+      const retry = g.retryAt > now ? `retry in ${timeSpan((g.retryAt - now) / 1000)}` : "retry eligible";
+      lines.push(`• ${kind}: ${clean(g.message, 240)}`);
+      lines.push(`  ${prettyPath(g.resource)} · affects ${g.paths.size} session(s) · ${retry}`);
+    }
+    if (groups.length > 8) lines.push(`… ${groups.length - 8} more distinct issues`);
+  }
+  if (advisoryNotes.size) {
+    lines.push("", "Last validation advisories (do not block commits)");
+    for (const note of [...advisoryNotes.values()].slice(0, 4)) lines.push(`• ${clean(note.message, 240)}`);
+  }
   if (records.length) {
     lines.push("", "Recorded coverage");
     for (const r of records.slice(0, 8)) {
@@ -97,7 +123,8 @@ export function formatStatus(status: Status, caps: Capabilities, now = Date.now(
       for (const [stage, issue] of relevantErrors(r, status, caps)) {
         if (!issue) continue;
         const retry = issue.retryAt > now ? `retry in ${timeSpan((issue.retryAt - now) / 1000)}` : "retry eligible";
-        lines.push(`  ${stageName(stage)} ${retry}: ${clean(issue.error, 240)}`);
+        const state = issue.kind === "deferred" ? "waiting" : issue.kind === "blocked" ? "blocked" : "error";
+        lines.push(`  ${stageName(stage)} ${state}, ${retry}${issue.resource ? " (see shared issue above)" : `: ${clean(issue.message ?? issue.error, 240)}`}`);
       }
     }
     if (records.length > 8) lines.push(`… ${records.length - 8} more observed sessions`);
