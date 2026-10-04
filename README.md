@@ -115,6 +115,26 @@ Cancel is cooperative, **not rollback**: validated commits and completed summary
 sections remain. Ownership is held until operations actually stop, including push
 process exit. Synchronous bounded OKF/Git calls can briefly occupy the event loop.
 
+### Compact footer
+
+The `🧹` prefix marks maintenance as its own block, with no internal dot separators.
+Labels are derived from current state on each poll/input, not old progress messages:
+
+| Label | Meaning |
+| --- | --- |
+| `🧹 idle 8m` / `ready` | Remaining idle wait / eligible to check for work |
+| `🧹 busy` / `peer` | Foreground work in this window / another same-cwd window |
+| `🧹 slot #1234` | Workspace executor claimed by PID 1234 (possibly another session) |
+| `🧹 obs #1234` | This exact session is maintained by PID 1234; this window observes |
+| `🧹 upd` / `review 2/6` / `sum 3/8` | Upgrade / knowledge review / search summary |
+| `🧹 compact` / `push` / `stop…` | Compaction / Git push / waiting for cancellation to finish |
+| `🧹 off` / `pause 30m` / `settings` | Disabled / timed pause / settings editor open |
+| `🧹 budget` / `err 2` / `new` | Daily budget reached / recorded blockers / no session path |
+
+`ready` means no worker is currently running here, not that every adapter's work
+is proven fresh. `/maintenance status` supplies coverage, blockers and ownership.
+No model calls or source-file parsing happen to render the footer.
+
 ## Session lifecycle and ownership
 
 - First process to claim the canonical saved-session path owns its maintenance.

@@ -6,6 +6,7 @@ import { hash, projectEntries, snapshot, type Snapshot } from "./source.ts";
 import { discover, invoke, type Bus, type TaskRequest } from "./protocol.ts";
 import { Store, type RecordState } from "./store.ts";
 import { unresolvedTools } from "./pairing.ts";
+import { formatFooter } from "./footer.ts";
 
 type Stage = "upgrade" | "review" | "summary" | "push" | "compact";
 export class Coordinator {
@@ -22,6 +23,8 @@ export class Coordinator {
   private timer?: ReturnType<typeof setInterval>;
   private compactStart?: number;
   private progress = "waiting for idle";
+  private footerError = false;
+  private lastFooter?: string;
   constructor(readonly bus: Bus, readonly store: Store, public config: Config, readonly now = Date.now) {
     this.lastActivity = now();
   }
@@ -32,7 +35,7 @@ export class Coordinator {
       if (existsSync(this.current)) this.store.observe(snapshot(this.current));
       this.store.release("session:" + this.current);
     }
-    this.ctx = ctx;
+    this.ctx = ctx; this.lastFooter = undefined;
     this.store.presence(ctx.cwd, !ctx.isIdle() || ctx.hasPendingMessages());
     const path = ctx.sessionManager.getSessionFile();
     this.current = path ? (existsSync(path) ? realpathSync(path) : resolve(path)) : undefined;
@@ -47,7 +50,10 @@ export class Coordinator {
   }
   start() {
     if (this.timer) return;
-    this.timer = setInterval(() => { this.poll(); void this.tick().catch((error) => this.report(error)); }, this.config.pollSeconds * 1000);
+    this.timer = setInterval(() => {
+      try { this.poll(); this.render(); void this.tick().catch((error) => this.report(error)); }
+      catch (error) { this.report(error); }
+    }, this.config.pollSeconds * 1000);
     this.timer.unref?.();
   }
   poll() {
@@ -65,6 +71,7 @@ export class Coordinator {
     this.lastActivity = this.now(); this.force = false;
     this.running?.abort.abort(new Error("Foreground activity takes priority"));
     if (this.running?.stage === "compact") this.ctx?.abort();
+    this.render();
   }
   settled() { this.generation++; this.lastActivity = this.now(); this.render(); }
   private compactKey() {
@@ -72,8 +79,11 @@ export class Coordinator {
     return `native:1:${hash([this.config.compaction, projectEntries(branch)])}`;
   }
   private report(error: unknown) {
+    if (this.closed) return;
     this.progress = error instanceof Error ? error.message : String(error);
-    this.ctx?.ui.setStatus("maintenance", `maintenance · ${this.progress.slice(0, 120)}`);
+    this.footerError = true;
+    try { this.render(); }
+    catch { this.ctx?.ui.setStatus("maintenance", "🧹 err"); }
   }
   private enabled(): boolean {
     if (!this.ctx) return false;
@@ -107,6 +117,7 @@ export class Coordinator {
       if (this.localHolds || !this.ctx.isIdle() || this.ctx.hasPendingMessages() || this.store.otherBusy(this.ctx.cwd) || (!this.idle() && !this.budgetDue())) return;
       if (!existsSync(this.current)) { this.progress = "waiting for a saved conversation"; return; }
       const s = snapshot(this.current); const activeRecord = this.store.observe(s);
+      this.footerError = false;
       if (!this.store.claim("executor:" + this.ctx.cwd)) { this.progress = "another maintenance executor is active"; this.render(); return; }
       try {
         if (this.budgetDue() && (activeRecord.errors?.compact?.retryAt ?? 0) <= this.now() &&
@@ -177,7 +188,7 @@ export class Coordinator {
         this.progress = blocked ? `${blocked} session(s) have deferred/blocked work · /maintenance status` : "up to date";
         this.force = false;
       } finally { this.store.release("executor:" + this.ctx.cwd); this.render(); }
-    } finally { this.tickRunning = false; }
+    } finally { this.tickRunning = false; this.render(); }
   }
   private request(operation: TaskRequest["operation"], s: Snapshot, signal: AbortSignal, model?: string): TaskRequest {
     let cycleCost = 0;
@@ -344,8 +355,29 @@ export class Coordinator {
   }
   private render() {
     if (!this.ctx || this.closed) return;
+    const now = this.now();
     const c = this.store.control(this.ctx.cwd);
-    this.ctx.ui.setStatus("maintenance", `maintenance · ${!this.config.enabled || c.disabled ? "off" : c.paused_until > this.now() ? `suspended until ${new Date(c.paused_until).toLocaleTimeString()}` : this.progress.slice(0, 120)}`);
+    const owner = this.current ? this.store.lease("session:" + this.current) : undefined;
+    const executor = this.store.lease("executor:" + this.ctx.cwd);
+    const foregroundBusy = !this.ctx.isIdle() || this.ctx.hasPendingMessages();
+    // No source-file parsing, capability probes or model calls on the render path.
+    // Query receipts only while idle, not on every foreground keystroke.
+    const records = !foregroundBusy && !this.running ? this.store.records(this.ctx.cwd) : [];
+    const errors = records.filter((r) => r.error || Object.entries(r.errors ?? {}).some(([stage]) =>
+      stage === "review" ? this.config.knowledge : stage === "summary" ? this.config.summaries :
+      stage === "upgrade" ? this.config.upgrades : stage === "push" ? this.config.push :
+      this.config.compaction.enabled && r.path === this.current)).length;
+    const text = formatFooter({
+      enabled: this.config.enabled && !c.disabled, pausedUntil: c.paused_until, now,
+      running: this.running ? { stage: this.running.stage, progress: this.progress, stopping: this.running.abort.signal.aborted } : undefined,
+      observerPid: owner && owner.token !== this.store.owner ? owner.pid : undefined,
+      settingsOpen: this.localHolds > 0, foregroundBusy, peerBusy: this.store.otherBusy(this.ctx.cwd),
+      executorPid: executor && executor.token !== this.store.owner ? executor.pid : undefined,
+      savedSession: Boolean(this.current), budgetReached: this.store.spent() >= this.config.dailyBudget,
+      errors: Math.max(this.footerError ? 1 : 0, errors),
+      idleRemainingSeconds: this.force ? 0 : Math.max(0, Math.ceil((Math.max(this.lastActivity, c.last_activity) + this.config.idleSeconds * 1000 - now) / 1000)),
+    });
+    if (text !== this.lastFooter) { this.ctx.ui.setStatus("maintenance", text); this.lastFooter = text; }
   }
   async close() {
     this.closing ??= this.closeOnce();

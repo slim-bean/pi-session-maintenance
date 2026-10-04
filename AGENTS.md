@@ -14,5 +14,6 @@ Read README.md. Capability-driven maintenance, not a browser or knowledge implem
 - Foreground input cancels background calls. Retain leases until operations have actually stopped.
 - Keep corpus operations inside the OKF adapter, including validation, automatic commits and configured non-force pushes.
 - `format.ts` keeps slash-command output human-readable and bounded; host control status stays structured.
+- `footer.ts` produces terse `🧹` blocks without internal dot separators. Derive live wait/ownership/busy state on every poll and early tick return; never display cached progress as current executor state.
 - `settings.ts` uses built-in dialogs, draft-only edits and compare-before-rename workspace saves. Hold maintenance while editing; guard against session/config changes; never resolve credentials to list models.
 - Tests: npm test; npm run typecheck. No model calls, normal session writes or browser launches.

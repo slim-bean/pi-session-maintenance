@@ -16,10 +16,11 @@ async function fixture(options: any = {}) {
   save();
   const calls: string[] = [];
   const notifications: string[] = [];
+  const footers: string[] = [];
   const ctx: any = { cwd: dir, isIdle: () => idle, hasPendingMessages: () => pending,
     getContextUsage: () => ({ tokens }), abort() {},
     sessionManager: { getSessionFile: () => path, getEntries: () => entries },
-    ui: { setStatus() {}, notify(text: string) { notifications.push(text); } },
+    ui: { setStatus(key: string, value: string) { if (key === "maintenance" && value !== undefined) footers.push(value); }, notify(text: string) { notifications.push(text); } },
     compact({ onComplete }: any) { calls.push("compact"); writeFileSync(path, JSON.stringify({ type: "compaction", summary: "metadata" }) + "\n", { flag: "a" }); onComplete(); },
   };
   const bus = { emit(channel: string, r: any) {
@@ -44,7 +45,7 @@ async function fixture(options: any = {}) {
   const store = new Store(config.stateDir, () => clock);
   const c = new Coordinator(bus, store, config, () => clock);
   await c.attach(ctx);
-  return { c, ctx, store, calls, dir, path, entries, save, notifications, bus,
+  return { c, ctx, store, calls, dir, path, entries, save, notifications, footers, bus,
     set idle(v: boolean) { idle = v; }, set pending(v: boolean) { pending = v; }, set tokens(v: number) { tokens = v; },
     advance(ms = 2000) { clock += ms; }, async close() { await c.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
@@ -73,6 +74,24 @@ test("missing optional packages skip their stages; archives never compact", asyn
     assert.deepEqual(f.calls, ["run", "compact", "run"]);
     assert.equal(readFileSync(archive, "utf8").includes("compaction"), false);
   } finally { await f.close(); }
+});
+
+test("footer refreshes live state after an executor leaves, even before idle eligibility", async () => {
+  const f = await fixture({ memory: false, summary: false, config: { compaction: { enabled: false } } });
+  const peer = new Store(f.c.config.stateDir, f.c.now);
+  try {
+    assert.equal(peer.claim("executor:" + f.dir), true);
+    f.advance(); await f.c.tick();
+    assert.equal(f.footers.at(-1), `🧹 slot #${process.pid}`);
+    peer.release("executor:" + f.dir);
+    f.c.activity();
+    assert.equal(f.footers.at(-1), "🧹 idle 1s");
+    f.idle = false; f.c.activity();
+    assert.equal(f.footers.at(-1), "🧹 busy");
+    f.idle = true; f.c.settled(); f.advance(); await f.c.tick();
+    assert.equal(f.footers.at(-1), "🧹 ready");
+    assert.ok(f.footers.every((text) => !text.includes("maintenance ·") && !text.includes("another maintenance executor")));
+  } finally { peer.close(); await f.close(); }
 });
 
 test("pending input, suspension, off and ownership observers never run work", async () => {
