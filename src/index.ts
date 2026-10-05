@@ -111,7 +111,18 @@ export default function maintenance(pi: ExtensionAPI) {
         else if (action === "resume") { c.resume(); commandCtx.ui.notify(`Workspace suspension/off cleared. ${c.config.enabled ? `Maintenance resumes after ${timeSpan(c.config.idleSeconds)} idle.` : "Maintenance is still disabled in settings."}`, "info"); }
         else if (action === "off") { c.off(); commandCtx.ui.notify("Maintenance disabled for this workspace. In-flight work is asked to stop; /maintenance on enables it again.", "info"); }
         else if (action === "on") { c.on(); commandCtx.ui.notify(`Maintenance enabled in this runtime; workspace overrides cleared. Work starts after ${timeSpan(c.config.idleSeconds)} idle.`, "info"); }
-        else if (action === "retry") { c.retry(); commandCtx.ui.notify("Retry backoff cleared; pending work is queued for safe idle. Completed work is retained.", "info"); }
+        else if (action === "retry") {
+          const before = c.status();
+          if (before.owner && !before.ownsSession) { commandCtx.ui.notify(`PID ${before.owner.pid} owns this session. Run /maintenance retry in that window to request an immediate safe-idle attempt.`, "warning"); return; }
+          c.retry();
+          const s = c.status();
+          const gate = !s.config.enabled || s.control?.disabled ? "Maintenance is off; /maintenance on is needed before it can run." :
+            (s.control?.paused_until ?? 0) > Date.now() ? "The workspace is suspended; /maintenance resume clears the pause." :
+            s.spentToday >= s.config.dailyBudget ? "Model work still waits for the UTC daily budget reset or an approved budget increase." :
+            s.foregroundBusy || s.peerBusy ? "The attempt waits for foreground work to finish; active turns are not interrupted." :
+            "An attempt has been requested now at the earliest safe idle opportunity (no normal idle countdown).";
+          commandCtx.ui.notify(`Retry backoff removed immediately. ${gate} Completed checkpoints and retry history are retained; /maintenance status shows any prerequisite that still needs repair.`, "info");
+        }
         else if (action === "backfill") {
           const path = rest.length ? rest.join(" ") : commandCtx.hasUI ? await commandCtx.ui.input("Saved session JSONL path (current workspace only)", "/path/to/session.jsonl") : undefined;
           if (!path) { if (!commandCtx.hasUI) throw new Error("Provide a path: /maintenance backfill /path/to/session.jsonl"); return; }

@@ -14,7 +14,8 @@ Read README.md. Capability-driven maintenance, not a browser or knowledge implem
 - Foreground input cancels background calls. Retain leases until operations have actually stopped.
 - Keep corpus operations inside the OKF adapter, including validation, automatic commits and configured non-force pushes.
 - `issues.ts` classifies deferred/blocked/error outcomes and deduplicates by resource/code. Legacy validation parsing is narrow; do not erase receipts or label work complete on policy changes. Re-admit only proven orphan-only saved plans when the adapter reports advisory policy.
-- `format.ts` keeps slash-command output human-readable and bounded; host control status stays structured.
+- `guidance.ts` gives code-specific next actions; show retry history and gates without implying retries can repair static prerequisites. Never invent a root cause or prior attempt timestamps.
+- `format.ts` keeps slash-command output human-readable and bounded; host control status stays structured. Manual retry clears delay only, preserves history, and requests a check without aborting foreground work.
 - `footer.ts` produces terse `🧹` blocks without internal dot separators. Derive live wait/ownership/busy state on every poll and early tick return; never display cached progress as current executor state.
 - `settings.ts` uses built-in dialogs, draft-only edits and compare-before-rename workspace saves. Hold maintenance while editing; guard against session/config changes; never resolve credentials to list models.
 - Tests: npm test; npm run typecheck. No model calls, normal session writes or browser launches.

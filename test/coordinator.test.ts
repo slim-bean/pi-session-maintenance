@@ -76,7 +76,7 @@ test("policy changes re-admit orphan-only saved plans, while strict mode keeps t
           errors: [], warnings: [], gate_findings: [], broken_links: null, orphans: ["one", "two"], stale_count: 0 } }) } };
       f.store.put(r); f.advance(); await f.c.tick();
       if (policy === "advisory") { assert.deepEqual(f.calls, ["review"]); assert.ok(f.store.get(f.path)!.review); }
-      else { assert.deepEqual(f.calls, []); assert.equal(f.store.get(f.path)!.review, undefined); assert.equal(f.footers.at(-1), "🧹 block 1"); }
+      else { assert.deepEqual(f.calls, []); assert.equal(f.store.get(f.path)!.review, undefined); assert.equal(f.footers.at(-1), "🧹 block 1 → status"); }
     } finally { await f.close(); }
   }
 });
@@ -141,7 +141,22 @@ test("routine typed deferrals wait without incrementing error counts", async () 
     f.advance(); await f.c.tick();
     const issue = f.store.get(f.path)!.errors!.review!;
     assert.equal(issue.kind, "deferred"); assert.equal(issue.failures, 0);
-    assert.equal(f.footers.at(-1), "🧹 wait 1");
+    assert.equal(f.footers.at(-1), "🧹 wait 1 auto");
+  } finally { await f.close(); }
+});
+
+test("manual retry clears only delay and retains history without interrupting an active turn", async () => {
+  const f = await fixture({ upgraded: true, summary: false, fail: "review", config: { compaction: { enabled: false } } });
+  try {
+    f.advance(); await f.c.tick();
+    const first = f.store.get(f.path)!.errors!.review!;
+    assert.equal(first.attempts, 1); assert.ok(first.lastAttemptAt);
+    f.idle = false; f.c.retry(); await new Promise((r) => setTimeout(r, 0));
+    assert.equal(f.calls.length, 1); assert.equal(f.store.get(f.path)!.errors!.review!.retryAt, 0);
+    f.idle = true; f.c.retry();
+    for (let i = 0; i < 20 && f.store.get(f.path)!.errors!.review!.attempts !== 2; i++) await new Promise((r) => setTimeout(r, 1));
+    assert.equal(f.store.get(f.path)!.errors!.review!.attempts, 2);
+    assert.equal(f.store.get(f.path)!.errors!.review!.firstAttemptAt, first.firstAttemptAt);
   } finally { await f.close(); }
 });
 

@@ -2,6 +2,7 @@ import type { RecordState } from "./store.ts";
 export type IssueKind = "deferred" | "blocked" | "error";
 export interface Issue {
   failures: number; retryAt: number; error: string;
+  attempts?: number; firstAttemptAt?: number; lastAttemptAt?: number;
   kind?: IssueKind; code?: string; resource?: string; detail?: unknown; message?: string;
 }
 export interface Classified { kind: IssueKind; code: string; resource?: string; message: string; detail?: unknown }
@@ -42,20 +43,25 @@ export function normalizeRecord(record: RecordState): RecordState {
   }
   return record;
 }
-export interface IssueGroup { kind: IssueKind; code: string; resource: string; message: string; paths: Set<string>; retryAt: number; detail?: unknown }
+export interface IssueGroup { kind: IssueKind; code: string; resource: string; message: string; paths: Set<string>; stages: Set<string>; retryAt: number; detail?: unknown; attempts: number; lastAttemptAt?: number; legacyHistory: boolean }
 export function groupedIssues(records: RecordState[], enabled: (stage: string, r: RecordState) => boolean = () => true): IssueGroup[] {
   const groups = new Map<string, IssueGroup>();
-  const add = (record: RecordState, issue: Issue) => {
+  const add = (record: RecordState, issue: Issue, stage: string) => {
     const info = issue.kind ? { kind: issue.kind, code: issue.code ?? "operation-failed", resource: issue.resource, message: issue.message ?? issue.error, detail: issue.detail } : classify(new Error(issue.error));
     const resource = info.resource ?? record.path;
     const key = JSON.stringify([info.kind, info.code, resource]);
     let group = groups.get(key);
-    if (!group) { group = { kind: info.kind, code: info.code, resource, message: info.message, paths: new Set(), retryAt: issue.retryAt, detail: info.detail }; groups.set(key, group); }
-    group.paths.add(record.path); group.retryAt = Math.min(group.retryAt, issue.retryAt);
+    if (!group) { group = { kind: info.kind, code: info.code, resource, message: info.message, paths: new Set(), stages: new Set(), retryAt: issue.retryAt, detail: info.detail, attempts: issue.attempts ?? issue.failures, lastAttemptAt: issue.lastAttemptAt, legacyHistory: issue.attempts === undefined };  groups.set(key, group); }
+    group.paths.add(record.path); group.stages.add(stage); group.retryAt = Math.min(group.retryAt, issue.retryAt);
+    group.attempts = Math.max(group.attempts, issue.attempts ?? issue.failures);
+    if ((issue.lastAttemptAt ?? 0) >= (group.lastAttemptAt ?? 0) && issue.lastAttemptAt !== undefined) {
+      group.lastAttemptAt = issue.lastAttemptAt; group.detail = info.detail; group.message = info.message;
+    }
+    group.legacyHistory ||= issue.attempts === undefined;
   };
   for (const record of records) {
-    if (record.error) add(record, { failures: 0, retryAt: 0, error: record.error, kind: "blocked", code: "source-unavailable", resource: record.path });
-    for (const [stage, issue] of Object.entries(record.errors ?? {})) if (issue && enabled(stage, record)) add(record, issue);
+    if (record.error) add(record, { failures: 0, retryAt: 0, error: record.error, kind: "blocked", code: "source-unavailable", resource: record.path }, "source");
+    for (const [stage, issue] of Object.entries(record.errors ?? {})) if (issue && enabled(stage, record)) add(record, issue, stage);
   }
   return [...groups.values()];
 }

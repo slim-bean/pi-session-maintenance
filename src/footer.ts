@@ -24,9 +24,9 @@ export function formatFooter(s: FooterState): string {
   if (s.executorPid) return `🧹 slot #${s.executorPid}`;
   if (!s.savedSession) return "🧹 new";
   if (s.budgetReached) return "🧹 budget";
-  if (s.errors) return `🧹 err ${s.errors}`;
-  if (s.blockers) return `🧹 block ${s.blockers}`;
-  if (s.deferrals) return `🧹 wait ${s.deferrals}`;
+  if (s.errors) return `🧹 err ${s.errors} → status`;
+  if (s.blockers) return `🧹 block ${s.blockers} → status`;
+  if (s.deferrals) return `🧹 wait ${s.deferrals} auto`;
   if (s.idleRemainingSeconds > 0) return `🧹 idle ${timeSpan(s.idleRemainingSeconds)}`;
   return "🧹 ready";
 }

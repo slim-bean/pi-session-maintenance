@@ -94,7 +94,7 @@ scheduler is implemented; configure concurrency on your server.
 /maintenance resume             # clear suspension/off; begin a fresh idle interval
 /maintenance off                # durable workspace disable
 /maintenance on                 # enable this runtime and clear workspace disable
-/maintenance retry              # clear stage backoff; queue work
+/maintenance retry              # remove delay now; attempt earliest safe idle (keep history)
 /maintenance backfill /path/to/session.jsonl
 /maintenance help               # human-readable commands and examples
 ```
@@ -129,8 +129,8 @@ Labels are derived from current state on each poll/input, not old progress messa
 | `🧹 upd` / `review 2/6` / `sum 3/8` | Upgrade / knowledge review / search summary |
 | `🧹 compact` / `push` / `stop…` | Compaction / Git push / waiting for cancellation to finish |
 | `🧹 off` / `pause 30m` / `settings` | Disabled / timed pause / settings editor open |
-| `🧹 budget` / `err 2` / `new` | Daily budget reached / actual error groups / no session path |
-| `🧹 block 1` / `wait 1` | Distinct blocking resource / routine deferral (shared resources counted once) |
+| `🧹 budget` / `err 2 → status` / `new` | Daily budget reached / actual error groups (inspect `/maintenance status`) / no session path |
+| `🧹 block 1 → status` / `wait 1 auto` | Blocking resource needing inspection / routine deferral with automatic retry |
 
 `ready` means no worker is currently running here, not that every adapter's work
 is proven fresh. `/maintenance status` supplies coverage, blockers and ownership.
@@ -172,7 +172,20 @@ backoff capped at one hour; routine deferrals (busy bundles, stale snapshots or 
 pairing) wait one polling interval without accumulating failure counts. Structured
 adapter issues identify kind, stable code and canonical resource. A shared knowledge
 bundle blocker affecting six sessions is counted **once**, with all affected reviews
-shown in status, not as six independent execution failures.
+shown in status, not as six independent execution failures. Each issue shows the
+recorded check count, last check time (when known), whether intervention is needed,
+the specific next action, and automatic retry eligibility. Legacy counters are
+labeled rather than assigned invented timestamps. Unknown diagnostics are not
+presented as a confidently diagnosed repair.
+
+`/maintenance retry` removes backoff immediately and requests a scheduler check
+now; it never interrupts active turns, steals ownership, clears receipts/history,
+or bypasses workspace off/suspension/budget gates. Use it in the owning window.
+Status states those gates and notes that retrying cannot fix a static prerequisite.
+Configuration/validation/Git blockers include concrete actions (reported findings,
+provider setup, author identity, upstream, conflicts, credentials or signing).
+Repeated unknown failures recommend investigation, while automatic retries remain
+scheduled. No dedicated general corpus-repair workflow is implied.
 
 Successful OKF reviews can retain non-blocking validation advisories. Independent
 concepts do not require invented relationships; schema, index/drift, broken links,

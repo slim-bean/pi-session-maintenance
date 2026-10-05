@@ -5,6 +5,7 @@ import type { Coordinator } from "./coordinator.ts";
 import type { Capabilities } from "./protocol.ts";
 import type { RecordState, Receipt } from "./store.ts";
 import { groupedIssues } from "./issues.ts";
+import { nextSteps } from "./guidance.ts";
 
 export type Status = ReturnType<Coordinator["status"]>;
 const clean = (text: string, max = 200) => {
@@ -104,6 +105,26 @@ export function formatStatus(status: Status, caps: Capabilities, now = Date.now(
       const retry = g.retryAt > now ? `retry in ${timeSpan((g.retryAt - now) / 1000)}` : "retry eligible";
       lines.push(`• ${kind}: ${clean(g.message, 240)}`);
       lines.push(`  ${prettyPath(g.resource)} · affects ${g.paths.size} session(s) · ${retry}`);
+      if (g.attempts > 0) {
+        const history = g.legacyHistory ? `Recorded unsuccessful checks: up to ${g.attempts} for an affected job (legacy history).` :
+          g.attempts === 1 ? "First unsuccessful check; no retry recorded yet." : `${g.attempts} unsuccessful checks for an affected job; already retried ${g.attempts - 1} time(s).`;
+        lines.push(`  History: ${history}${g.lastAttemptAt ? ` Last check ${timeSpan(Math.max(0, now - g.lastAttemptAt) / 1000)} ago.` : ""}`);
+      } else lines.push("  History: no attempt history recorded for this condition.");
+      const guidance = nextSteps(g);
+      lines.push(`  Next: ${guidance.intervention === "needed" ? "Action needed before this can pass." : guidance.intervention === "suggested" ? "Investigation recommended; repeated retries have not resolved it." : "No intervention required yet."}`);
+      for (const action of guidance.actions.slice(0, 6)) lines.push(`    ${clean(action, 400)}`);
+      if (guidance.actions.length > 6) lines.push("    More findings remain in memory_validate.");
+      const modelWork = [...g.stages].some((stage) => stage !== "push" && stage !== "source");
+      if (off) lines.push("  Automatic retry: paused while maintenance is off; /maintenance on enables it.");
+      else if (suspended) lines.push(`  Automatic retry: after the pause ends (${timeSpan((status.control!.paused_until - now) / 1000)}), at a safe idle window.`);
+      else if (modelWork && status.spentToday >= cfg.dailyBudget) lines.push("  Automatic retry: after the UTC daily budget resets (or an approved budget increase), at safe idle.");
+      else if (status.foregroundBusy || status.peerBusy) {
+        lines.push(`  Automatic retry: at a safe idle window after foreground work finishes; normal idle delay is ${timeSpan(cfg.idleSeconds)} (${retry}).${guidance.intervention === "needed" ? " Retrying alone cannot repair this prerequisite." : ""}`);
+      } else {
+        const wait = Math.max(0, (g.retryAt - now) / 1000, status.idleRemainingSeconds);
+        lines.push(`  Automatic retry: ${wait > 0 ? `eligible in ${timeSpan(wait)}, then at` : "at the next"} safe idle window.${guidance.intervention === "needed" ? " Retrying alone cannot repair this prerequisite." : ""}`);
+      }
+      lines.push(`  Retry now: /maintenance retry removes backoff immediately and attempts the earliest safe idle window${status.owner && !status.ownsSession ? `; run it in owner PID ${status.owner.pid}'s window` : ""}. Active turns are not interrupted.`);
     }
     if (groups.length > 8) lines.push(`… ${groups.length - 8} more distinct issues`);
   }

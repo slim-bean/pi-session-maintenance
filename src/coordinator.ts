@@ -84,7 +84,7 @@ export class Coordinator {
     this.progress = error instanceof Error ? error.message : String(error);
     this.footerError = true;
     try { this.render(); }
-    catch { this.ctx?.ui.setStatus("maintenance", "🧹 err"); }
+    catch { this.ctx?.ui.setStatus("maintenance", "🧹 err → status"); }
   }
   private enabled(): boolean {
     if (!this.ctx) return false;
@@ -307,7 +307,9 @@ export class Coordinator {
     const failures = info.kind === "deferred" ? 0 : (old?.failures ?? 0) + 1;
     const delay = info.kind === "deferred" ? Math.max(5000, this.config.pollSeconds * 1000) : Math.min(3600_000, 30_000 * 2 ** Math.min(failures - 1, 7));
     (record.errors ??= {})[stage] = { failures, retryAt: this.now() + delay, error: (error as Error).message ?? String(error),
-      kind: info.kind, code: info.code, resource: info.resource, detail: info.detail, message: info.message };
+      kind: info.kind, code: info.code, resource: info.resource, detail: info.detail, message: info.message,
+      attempts: (old?.attempts ?? old?.failures ?? 0) + 1,
+      firstAttemptAt: old ? old.firstAttemptAt : this.now(), lastAttemptAt: this.now() };
     this.store.put(record); this.progress = `${stage} ${info.kind}: ${info.message}`;
   }
   holdForSettings(): () => void {
@@ -337,8 +339,13 @@ export class Coordinator {
   on() { this.config.enabled = true; this.resume(); }
   retry() {
     if (!this.ctx) return;
-    for (const record of this.store.records(this.ctx.cwd)) { record.errors = {}; this.store.put(record); }
+    for (const record of this.store.records(this.ctx.cwd)) {
+      for (const issue of Object.values(record.errors ?? {})) if (issue) issue.retryAt = 0;
+      this.store.put(record);
+    }
     this.requestRun();
+    // Admit immediately if safe; don't wait for the periodic poll or abort foreground work.
+    queueMicrotask(() => { void this.tick().catch((error) => this.report(error)); });
   }
   enqueue(path: string) {
     const s = snapshot(path);
