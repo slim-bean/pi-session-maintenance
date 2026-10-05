@@ -15,9 +15,9 @@ and credentials. This is cooperative automation, not a filesystem/security sandb
 Node ≥22.18 (node:sqlite), Git, and pi are required.
 
 ```bash
-cd ~/projects/pi-session-maintenance && npm install
+cd ~/projects/pi-extensions/pi-session-maintenance && npm install
 cd ~/projects/discussions/general
-pi install -l ~/projects/pi-session-maintenance
+pi install -l ~/projects/pi-extensions/pi-session-maintenance
 # /reload in existing sessions
 ```
 
