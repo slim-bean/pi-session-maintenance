@@ -1,6 +1,6 @@
 {
   "name": "pi-session-maintenance",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Capability-driven idle session maintenance: memory, search summaries and optional compaction.",
@@ -8,8 +8,8 @@
   "keywords": ["pi-package", "sessions", "maintenance"],
   "engines": { "node": ">=22.18" },
   "pi": { "extensions": ["./src/index.ts"] },
-  "scripts": { "test": "tsx --test test/*.test.ts", "typecheck": "scripts/typecheck.sh" },
+  "scripts": { "test": "tsx --test test/*.test.ts", "typecheck": "scripts/typecheck.sh", "dev:link-host": "node scripts/link-host.mjs" },
   "devDependencies": { "@types/node": "^24.0.0", "tsx": "^4.20.0", "typescript": "^5.9.0" },
-  "peerDependencies": { "@earendil-works/pi-coding-agent": "*" },
-  "peerDependenciesMeta": { "@earendil-works/pi-coding-agent": { "optional": true } }
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*" },
+  "peerDependenciesMeta": { "@earendil-works/pi-coding-agent": { "optional": true }, "@earendil-works/pi-tui": { "optional": true } }
 }

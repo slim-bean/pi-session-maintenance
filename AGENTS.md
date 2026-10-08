@@ -13,9 +13,25 @@ Read README.md. Capability-driven maintenance, not a browser or knowledge implem
 - Use documented versioned event contracts; no imports of sibling projects' private modules.
 - Foreground input cancels background calls. Retain leases until operations have actually stopped.
 - Keep corpus operations inside the OKF adapter, including validation, automatic commits and configured non-force pushes.
+- `store.ts` archives resolved blockers to issue_history only with fresh adapter evidence.
+  Preserve original counters/messages/unknown timestamps; compare against the current
+  issue before clearing it. Never manufacture review/summary completion receipts.
+- Track actual configuration origin separately from Config; don't infer loaded settings
+  from file existence after startup. Report file/default/host origins in status/errors.
 - `issues.ts` classifies deferred/blocked/error outcomes and deduplicates by resource/code. Legacy validation parsing is narrow; do not erase receipts or label work complete on policy changes. Re-admit only proven orphan-only saved plans when the adapter reports advisory policy.
 - `guidance.ts` gives code-specific next actions; show retry history and gates without implying retries can repair static prerequisites. Never invent a root cause or prior attempt timestamps.
 - `format.ts` keeps slash-command output human-readable and bounded; host control status stays structured. Manual retry clears delay only, preserves history, and requests a check without aborting foreground work.
-- `footer.ts` produces terse `🧹` blocks without internal dot separators. Derive live wait/ownership/busy state on every poll and early tick return; never display cached progress as current executor state.
+- `footer.ts` produces `🧹` blocks, active-only animation and a `/maintenance watch` hint. Animation uses cached footer state, never per-frame SQLite/source reads; stop its timer on completion/shutdown. Derive ownership on scheduler polls.
+- `runs.ts` owns private native SessionManager transcripts outside normal discovery. Never append background prompts/output to the source session. Preserve failed/cancelled output, distinguish unfinished from completed, respect modelTranscripts opt-out, and never record credential/transport options.
+- `presentation.ts` projects immutable rows from native JSONL. Apply bold/theme/ANSI
+  only at render time; retain raw JSON as an escape hatch. Separate model proposals
+  from validation/commit evidence. Report exact provider usage vs labeled visible
+  estimates; never count deltas plus final responses, usage events plus messages,
+  reasoning output twice, signatures/base64 as text, or estimate dollar costs.
+- `history.ts` owns the two-pane history list/detail UI (SelectList). Preserve run-ID
+  selection and scroll during refresh; support narrow panes and nested read-only
+  session inspection. Never switch/resume the foreground session to view a journal.
+- `viewer.ts`/`passive-input.ts` own passive inspection: no model calls, scheduler holds, ownership changes or cancellation from monitor navigation. Normal foreground input still preempts work. Escape terminal controls and bound display sizes.
+- Manual run/retry share runNow admission: no idle/poll delay, explicit blockers, no promise of running if nothing is due. Preserve checkpoints/attempt history and never bypass safety or budget gates.
 - `settings.ts` uses built-in dialogs, draft-only edits and compare-before-rename workspace saves. Hold maintenance while editing; guard against session/config changes; never resolve credentials to list models.
 - Tests: npm test; npm run typecheck. No model calls, normal session writes or browser launches.

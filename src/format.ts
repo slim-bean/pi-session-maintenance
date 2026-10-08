@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { homedir } from "node:os";
-import type { Config } from "./config.ts";
+import { describeConfigSource, type Config } from "./config.ts";
 import type { Coordinator } from "./coordinator.ts";
 import type { Capabilities } from "./protocol.ts";
 import type { RecordState, Receipt } from "./store.ts";
@@ -97,7 +97,11 @@ export function formatStatus(status: Status, caps: Capabilities, now = Date.now(
     `Sessions: ${records.length} observed · ${pending} need saved coverage`,
     `Issues: ${groups.filter((g) => g.kind === "error").length} errors · ${groups.filter((g) => g.kind === "blocked").length} blockers · ${groups.filter((g) => g.kind === "deferred").length} waiting`,
   ];
+  if (status.configSource) lines.push(`Configuration: ${clean(describeConfigSource(status.configSource), 500)}`);
+  if (status.resolvedIssues?.length) lines.push(`Resolved issues: ${status.resolvedIssues.length} recent archived record(s); original errors/counters retained in state.db.`);
   if (status.progress && status.progress !== "waiting for idle") lines.push(`Latest: ${clean(status.progress, 240)}`);
+  if (status.running?.transcript) lines.push(`Transcript: ${clean(prettyPath(status.running.transcript), 500)}`,
+    `Inspect: /maintenance watch · last event ${timeSpan(Math.max(0, now - status.running.lastEvent) / 1000)} ago`);
   if (groups.length) {
     lines.push("", "Maintenance issues (shared resources counted once)");
     for (const g of groups.slice(0, 8)) {
@@ -163,6 +167,8 @@ export function formatSettings(cfg: Config, cwd: string): string {
     `Summary model: ${cfg.summaryModel ? clean(cfg.summaryModel) : "automatic (pinned per session)"}`,
     `Model budget: ${money(cfg.maxCostPerCycle)} per opportunity · ${money(cfg.dailyBudget)} per UTC day (approx.)`,
     `Compaction: ${onOff(cfg.compaction.enabled)} · Idle floor: ${cfg.compaction.minTokens.toLocaleString()} tokens · Between-turn budget: ${cfg.compaction.budgetTokens?.toLocaleString() ?? "off"}`,
-    `Push to configured upstream: ${onOff(cfg.push)}`, `Private state: ${prettyPath(cfg.stateDir)} (change requires reload)`,
+    `Push to configured upstream: ${onOff(cfg.push)}`,
+    `Private model transcripts: ${onOff(cfg.modelTranscripts)} · /maintenance watch · /maintenance history`,
+    `Private state: ${prettyPath(cfg.stateDir)} (change requires reload)`,
   ].join("\n");
 }

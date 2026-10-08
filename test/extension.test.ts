@@ -11,7 +11,7 @@ test("factory is inert; trusted session binds commands/host config; shutdown can
   const hooks = new Map<string, Function>(); const bus = new EventEmitter(); let command: any;
   const notices: string[] = [];
   const pi: any = {
-    on: (name: string, fn: Function) => hooks.set(name, fn), registerCommand: (_name: string, c: any) => { command = c; }, getAllTools: () => [],
+    on: (name: string, fn: Function) => hooks.set(name, fn), registerShortcut() {}, registerCommand: (_name: string, c: any) => { command = c; }, getAllTools: () => [],
     events: { emit: (name: string, r: any) => bus.emit(name, r), on: (name: string, fn: any) => bus.on(name, fn) },
   };
   const ctx: any = { cwd: dir, isProjectTrusted: () => true, isIdle: () => true, hasPendingMessages: () => false,
@@ -38,7 +38,7 @@ test("settings command persists and applies changes without losing ownership; ac
   const dir = mkdtempSync(join(tmpdir(), "maintenance-settings-command-"));
   const hooks = new Map<string, Function>(); const bus = new EventEmitter(); let command: any;
   const notices: string[] = []; const choices = ["Idle delay:", "Save & apply"];
-  const pi: any = { on: (name: string, fn: Function) => hooks.set(name, fn), registerCommand: (_n: string, c: any) => { command = c; }, getAllTools: () => [],
+  const pi: any = { on: (name: string, fn: Function) => hooks.set(name, fn), registerShortcut() {}, registerCommand: (_n: string, c: any) => { command = c; }, getAllTools: () => [],
     events: { emit: (name: string, r: any) => bus.emit(name, r), on: (name: string, fn: any) => bus.on(name, fn) } };
   const ctx: any = { cwd: dir, mode: "rpc", hasUI: true, isProjectTrusted: () => true, isIdle: () => true, hasPendingMessages: () => false,
     sessionManager: { getSessionFile: () => join(dir, "not-saved.jsonl") },
@@ -62,7 +62,7 @@ test("settings command persists and applies changes without losing ownership; ac
 test("old installed dependencies fail visibly rather than silently skipping requested work", async () => {
   const dir = mkdtempSync(join(tmpdir(), "maintenance-old-adapter-"));
   const hooks = new Map<string, Function>(); const notices: string[] = [];
-  const pi: any = { on: (name: string, fn: Function) => hooks.set(name, fn), registerCommand() {}, getAllTools: () => [{ name: "session_summarize" }], events: { on() {}, emit() {} } };
+  const pi: any = { on: (name: string, fn: Function) => hooks.set(name, fn), registerShortcut() {}, registerCommand() {}, getAllTools: () => [{ name: "session_summarize" }], events: { on() {}, emit() {} } };
   try {
     maintenance(pi);
     await hooks.get("session_start")!({}, { cwd: dir, isProjectTrusted: () => true, ui: { notify: (s: string) => notices.push(s) } });

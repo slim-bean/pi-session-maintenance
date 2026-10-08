@@ -253,3 +253,114 @@ test("compaction refuses a stale in-memory view and budget compaction takes prio
     assert.match(f.store.get(f.path)!.errors!.compact!.error, /in-memory/);
   } finally { await f.close(); }
 });
+
+test("manual admission starts immediately before idle/poll delay and returns without waiting for the model", async () => {
+  const f = await fixture({ memory: false, config: { compaction: { enabled: false }, idleSeconds: 600 } });
+  let finish!: () => void;
+  const done = new Promise<void>(r => { finish = r; });
+  const original = f.bus.emit;
+  f.bus.emit = (channel, r) => {
+    if (channel === "summary" && r.operation === "run") {
+      f.calls.push("run");
+      r.onProgress("summary: 1/3 sections");
+      r.result = done.then(() => ({ key: "summary:1", complete: true }));
+    } else original(channel, r);
+  };
+  try {
+    const admission = await f.c.runNow(); assert.match(admission, /Started summary immediately/);
+    assert.deepEqual(f.calls, ["run"]); assert.equal(f.c.status().running!.stage, "summary");
+    assert.match(f.c.status().running!.transcript, /runs.*jsonl$/);
+    assert.match(await f.c.runNow(), /already running/);
+    finish(); await f.c.cancel();
+  } finally { finish(); await f.close(); }
+});
+
+test("manual admission reports foreground, suspension, budget, ownership and settings blockers", async () => {
+  const f = await fixture({ memory: false, config: { compaction: { enabled: false } } });
+  const peerStore = new Store(f.c.config.stateDir, f.c.now);
+  try {
+    f.idle = false; assert.match(await f.c.runNow(), /foreground/); assert.deepEqual(f.calls, []);
+    f.idle = true; f.c.suspend(100); assert.match(await f.c.runNow(), /suspended/);
+    f.c.resume(); f.c.off(); assert.match(await f.c.runNow(), /off/); f.c.on();
+    const release = f.c.holdForSettings(); assert.match(await f.c.runNow(), /settings/); release();
+    peerStore.claim("executor:" + f.dir); assert.match(await f.c.runNow(), /workspace executor/);
+    peerStore.release("executor:" + f.dir);
+    f.store.account(5); assert.match(await f.c.runNow(), /daily model budget/); assert.deepEqual(f.calls, []);
+  } finally { peerStore.close(); await f.close(); }
+});
+
+test("manual admission clears retry delay without erasing attempts and reports actual adapter prerequisites", async () => {
+  const f = await fixture({ upgraded: true, summary: false, fail: "review", config: { compaction: { enabled: false } } });
+  try {
+    f.advance(); await f.c.tick(); const before = f.store.get(f.path)!.errors!.review!;
+    assert.match(await f.c.runNow(), /Started review/);
+    await f.c.cancel();
+    assert.equal(f.store.get(f.path)!.errors!.review!.firstAttemptAt, before.firstAttemptAt);
+    const emit = f.bus.emit;
+    f.bus.emit = (channel, request) => {
+      if (channel === "memory" && request.operation === "status") request.result = Promise.reject(Object.assign(new Error("No configured model/auth"),
+        { maintenanceIssue: 1, kind: "blocked", code: "model-auth", resource: "fake/missing-auth" }));
+      else emit(channel, request);
+    };
+    assert.match(await f.c.runNow(), /model-auth.*No configured model\/auth/);
+  } finally { await f.close(); }
+});
+
+test("fresh healthy status retires old binary/upgrade blockers without new work or erased history", async () => {
+  const f = await fixture({ upgraded: true, summary: false, config: { compaction: { enabled: false } } });
+  try {
+    const r = f.store.get(f.path)!;
+    r.review = { hash: r.hash, key: "memory:1", at: f.c.now() };
+    r.errors = { upgrade: { failures: 5529, retryAt: f.c.now() + 3600000, kind: "error", code: "operation-failed",
+      error: "okf binary not found. Set OKF_BIN, restore this package's bin/ directory, or put okf on PATH." } };
+    f.store.put(r);
+    const reply = await f.c.runNow();
+    assert.match(reply, /up to date/); assert.doesNotMatch(reply, /okf binary not found/);
+    assert.deepEqual(f.calls, []); assert.equal(f.store.get(f.path)!.errors?.upgrade, undefined);
+    const history = f.store.resolvedIssues(f.dir); assert.equal(history.length, 1);
+    assert.equal(history[0].issue.failures, 5529); assert.equal(history[0].issue.lastAttemptAt, undefined);
+    assert.equal(history[0].evidence.upgraded, true);
+    assert.deepEqual(f.store.get(f.path)!.review, r.review);
+  } finally { await f.close(); }
+});
+
+test("binary recovery does not manufacture completed upgrades; current lookup failures stay active", async () => {
+  const f = await fixture({ upgraded: false, summary: false, config: { compaction: { enabled: false } } });
+  try {
+    const r = f.store.get(f.path)!;
+    r.errors = { upgrade: { failures: 10, retryAt: f.c.now() + 3600000,
+      error: "okf binary not found. Set OKF_BIN, restore this package's bin/ directory, or put okf on PATH." } };
+    f.store.put(r);
+    assert.match(await f.c.runNow(), /Started upgrade/); await f.c.cancel();
+    assert.equal(f.store.resolvedIssues(f.dir)[0].evidence.upgraded, false);
+    assert.equal(f.store.get(f.path)!.review, undefined);
+    const emit = f.bus.emit;
+    f.bus.emit = (channel, request) => {
+      if (channel === "memory" && request.operation === "status") request.result = Promise.reject(Object.assign(new Error("Current binary lookup is failing"),
+        { maintenanceIssue: 1, kind: "blocked", code: "okf-binary", resource: "/loaded/package" }));
+      else emit(channel, request);
+    };
+    assert.match(await f.c.runNow(), /Current binary lookup is failing/);
+    assert.equal(f.store.get(f.path)!.errors!.upgrade!.code, "okf-binary");
+    assert.equal(f.store.resolvedIssues(f.dir).length, 1);
+  } finally { await f.close(); }
+});
+
+test("run transcripts retain cancellation events and do not change the source JSONL", async () => {
+  const f = await fixture({ memory: false, config: { compaction: { enabled: false } } });
+  let finish!: () => void; const done = new Promise<void>(r => { finish = r; });
+  const original = f.bus.emit;
+  f.bus.emit = (channel, r) => {
+    if (channel === "summary" && r.operation === "run") {
+      r.onModelEvent({ type: "start", provider: "fake", model: "offline", systemPrompt: "system", messages: [{ role: "user", content: "input", timestamp: Date.now() }] });
+      r.onModelEvent({ type: "delta", channel: "text", delta: "partial output" });
+      r.result = done.then(() => { r.signal.throwIfAborted(); return { key: "summary:1", complete: true }; });
+    } else original(channel, r);
+  };
+  try {
+    const source = readFileSync(f.path, "utf8"); await f.c.runNow(); const file = f.c.status().running!.transcript;
+    f.c.activity(); finish(); await f.c.cancel();
+    assert.match(readFileSync(file, "utf8"), /partial output/); assert.match(readFileSync(file, "utf8"), /cancelled/);
+    assert.equal(readFileSync(f.path, "utf8"), source);
+  } finally { finish(); await f.close(); }
+});

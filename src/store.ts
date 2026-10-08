@@ -36,6 +36,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS controls(cwd TEXT PRIMARY KEY, paused_until INTEGER NOT NULL DEFAULT 0, disabled INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS spend(day TEXT PRIMARY KEY, cost REAL NOT NULL);
       CREATE TABLE IF NOT EXISTS participants(token TEXT PRIMARY KEY, cwd TEXT NOT NULL, pid INTEGER NOT NULL, host TEXT NOT NULL, busy INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS issue_history(id INTEGER PRIMARY KEY, session_path TEXT NOT NULL, cwd TEXT NOT NULL,
+        stage TEXT NOT NULL, resolved_at INTEGER NOT NULL, evidence TEXT NOT NULL, issue TEXT NOT NULL);
     `);
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -64,6 +66,36 @@ export class Store {
   }
   records(cwd: string): RecordState[] {
     return (this.db.prepare("SELECT data FROM sessions WHERE cwd=? ORDER BY path").all(cwd) as { data: string }[]).map((r) => normalizeRecord(JSON.parse(r.data)));
+  }
+  /** Archive an obsolete blocker only after fresh adapter evidence. Keep all counters,
+   * messages and unknown legacy timestamps; never manufacture a work receipt. */
+  resolveIssue(record: RecordState, stage: "upgrade" | "review" | "summary" | "push" | "compact", evidence: unknown): boolean {
+    const expected = record.errors?.[stage];
+    if (!expected) return false;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const fresh = this.get(record.path);
+      const issue = fresh?.errors?.[stage];
+      if (!fresh || !issue || JSON.stringify(issue) !== JSON.stringify(expected)) { this.db.exec("COMMIT"); return false; }
+      this.db.prepare("INSERT INTO issue_history(session_path,cwd,stage,resolved_at,evidence,issue) VALUES(?,?,?,?,?,?)")
+        .run(record.path, record.cwd, stage, this.now(), JSON.stringify(evidence), JSON.stringify(issue));
+      delete fresh.errors![stage]; this.put(fresh); record.errors = fresh.errors;
+      this.db.exec("COMMIT"); return true;
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+  }
+  resolvedIssues(cwd: string) {
+    return this.db.prepare("SELECT stage,resolved_at,evidence,issue,session_path FROM issue_history WHERE cwd=? ORDER BY id DESC LIMIT 20").all(cwd)
+      .map((row: any) => ({ stage: row.stage, at: row.resolved_at, path: row.session_path, evidence: JSON.parse(row.evidence), issue: JSON.parse(row.issue) }));
+  }
+  clearBackoff(cwd: string) {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const record of this.records(cwd)) {
+        for (const issue of Object.values(record.errors ?? {})) if (issue) issue.retryAt = 0;
+        this.put(record);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
   lease(key: string): Lease | undefined { return this.db.prepare("SELECT * FROM leases WHERE key=?").get(key) as unknown as Lease | undefined; }
   claim(key: string): boolean {

@@ -13,6 +13,7 @@ function status(): Status {
   return { enabled: true, ownsSession: true, foregroundBusy: true, peerBusy: false, idleRemainingSeconds: 120,
     owner: undefined, currentSession: "/workspace/session.jsonl", currentSessionName: undefined, running: null, compactStarted: undefined,
     progress: "waiting for idle", control: { disabled: 0, paused_until: 0, cancel_seq: 0, last_activity: now },
+    configSource: { kind: "programmatic" }, resolvedIssues: [],
     spentToday: 0, config: parseConfig({}, "/workspace"), sessions: [{ path: "/workspace/session.jsonl", cwd: "/workspace", id: "s", hash: "source", seen: now, retryAt: 0, failures: 0,
       errors: { review: { kind: "blocked", code: "memory-validation", resource: "/workspace/knowledge", error: "Validation needs repair", failures: 4, attempts: 4, retryAt: now + 30000, lastAttemptAt: now - 60000,
         detail: { validation: { warnings: ["decisions/storage not listed in parent index"], errors: [], gate_findings: [], broken_links: null } } } } }] };

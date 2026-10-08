@@ -12,6 +12,7 @@ function status(): Status {
     owner: { key: "session", token: "private-owner-token", host: "local", pid: 1234, heartbeat: now },
     running: null, compactStarted: undefined, progress: "waiting for idle",
     control: { paused_until: 0, disabled: 0, cancel_seq: 4, last_activity: now }, spentToday: .03,
+    configSource: { kind: "programmatic" }, resolvedIssues: [],
     config: parseConfig({}, "/workspace"), sessions: [{ path: "/workspace/current.jsonl", cwd: "/workspace", id: "abc", hash: "new", seen: now, retryAt: 0, failures: 0,
       name: "old title", entryCount: 3, review: { hash: "old", key: "m", at: now - 600_000 }, summary: { hash: "new", key: "s", at: now - 60_000 } }] };
 }

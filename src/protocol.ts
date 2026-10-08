@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Snapshot } from "./source.ts";
+import type { ModelEvent } from "./runs.ts";
 export interface Capability { protocol: 1; channel: string }
 export interface Capabilities { memory?: Capability; summary?: Capability }
 export interface Outcome { key: string; complete?: boolean; available?: boolean; upgraded?: boolean; detail?: unknown; bundle?: string; orphanPolicy?: "advisory" | "strict" }
@@ -8,6 +9,8 @@ export interface TaskRequest {
   context: ExtensionContext; cwd: string; path: string; sourceHash: string; source: Snapshot;
   model?: string; workDir: string; maxCost: number; signal: AbortSignal;
   assertSource(): void; onUsage(usage: any): void; onProgress(text: string): void;
+  onModelEvent?: (event: ModelEvent) => void;
+  onEvent?: (type: string, detail?: unknown) => void;
   result?: Promise<Outcome>;
 }
 export interface Bus { emit(channel: string, request: unknown): void }

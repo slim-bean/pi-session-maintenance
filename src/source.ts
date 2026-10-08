@@ -22,6 +22,9 @@ export function snapshot(path: string): Snapshot {
   const rawEntries = lines.map((line) => {
     try { return JSON.parse(line); } catch { throw new Error("Incomplete/corrupt session JSONL; retry after the writer settles"); }
   });
+  if (rawEntries.some(entry => entry?.type === "custom" && entry.customType === "maintenance.run")) {
+    throw new Error("Maintenance transcripts are not source conversations; refusing recursive maintenance");
+  }
   const entries = projectEntries(rawEntries);
   let name: string | undefined;
   for (const e of rawEntries) if (e?.type === "session_info") name = typeof e.name === "string" && e.name.trim() ? e.name : undefined;

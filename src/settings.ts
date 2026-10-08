@@ -71,6 +71,7 @@ export async function editSettings(ctx: ExtensionContext, current: Config, asser
       { key: "budgetTokens", label: `Between-turn context budget: ${draft.compaction.budgetTokens?.toLocaleString() ?? "off"}` },
       { key: "pollSeconds", label: `Check interval: ${timeSpan(draft.pollSeconds)}` },
       { key: "push", label: `Push committed knowledge to upstream: ${enabled(draft.push)}` },
+      { key: "modelTranscripts", label: `Save private model prompts/output: ${enabled(draft.modelTranscripts)}` },
       { key: "storage", label: `Private state: ${prettyPath(draft.stateDir)} (read-only here)` },
       { key: "save", label: "Save & apply changes" },
       { key: "cancel", label: "Cancel — discard changes" },
@@ -83,8 +84,8 @@ export async function editSettings(ctx: ExtensionContext, current: Config, asser
     if (key === "storage") { ctx.ui.notify("State location changes require editing maintenance.json and reloading. No files were moved.", "info"); continue; }
     const next: Config = { ...draft, compaction: { ...draft.compaction } };
     try {
-      if (["enabled", "knowledge", "upgrades", "summaries", "push"].includes(key)) {
-        const flag = key as "enabled" | "knowledge" | "upgrades" | "summaries" | "push";
+      if (["enabled", "knowledge", "upgrades", "summaries", "push", "modelTranscripts"].includes(key)) {
+        const flag = key as "enabled" | "knowledge" | "upgrades" | "summaries" | "push" | "modelTranscripts";
         if (flag === "push" && !next.push) {
           const approved = await ctx.ui.confirm("Enable automatic knowledge pushes?", "This publishes the entire existing configured Git branch, not just knowledge files. No force pushes or automatic rebases are performed. Configure the intended upstream and unattended Git credentials first.");
           assertCurrent();

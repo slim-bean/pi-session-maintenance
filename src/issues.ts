@@ -9,6 +9,8 @@ export interface Classified { kind: IssueKind; code: string; resource?: string; 
 export function maintenanceIssue(kind: IssueKind, code: string, resource: string, message: string): Error {
   return Object.assign(new Error(message), { maintenanceIssue: 1, kind, code, resource });
 }
+const LEGACY_MISSING_BINARY = "okf binary not found. Set OKF_BIN, restore this package's bin/ directory, or put okf on PATH.";
+export const isBinaryIssue = (issue: Issue) => issue.code === "okf-binary" || issue.error === LEGACY_MISSING_BINARY;
 /** Narrow compatibility reader for our old serialized validation errors, not fuzzy error suppression. */
 function legacyValidation(message: string): Classified | undefined {
   const prefix = "Memory validation failed; planned changes retained for retry: ";
@@ -32,11 +34,17 @@ export function classify(error: unknown): Classified {
   if (e?.maintenanceIssue === 1 && ["deferred", "blocked", "error"].includes(e.kind as string) && typeof e.code === "string") {
     return { kind: e.kind as IssueKind, code: e.code, resource: typeof e.resource === "string" ? e.resource : undefined, message, detail: e.detail };
   }
+  if (message === LEGACY_MISSING_BINARY) return { kind: "blocked", code: "okf-binary", message };
   return legacyValidation(message) ?? { kind: "error", code: "operation-failed", message };
 }
 export function normalizeRecord(record: RecordState): RecordState {
   for (const issue of Object.values(record.errors ?? {})) {
-    if (!issue || (issue.kind && ["deferred", "blocked", "error"].includes(issue.kind))) continue;
+    if (!issue) continue;
+    if (issue.error === LEGACY_MISSING_BINARY && issue.code !== "okf-binary") {
+      issue.kind = "blocked"; issue.code = "okf-binary"; issue.resource = record.cwd;
+      continue; // preserve original counters/error/backoff; provenance was not recorded historically
+    }
+    if (issue.kind && ["deferred", "blocked", "error"].includes(issue.kind)) continue;
     const result = classify(new Error(issue.error));
     issue.kind = result.kind; issue.code = result.code; issue.resource = result.resource; issue.detail = result.detail; issue.message = result.message;
     // Keep the original error/counters/backoff; classification never completes or drops work.
@@ -48,7 +56,7 @@ export function groupedIssues(records: RecordState[], enabled: (stage: string, r
   const groups = new Map<string, IssueGroup>();
   const add = (record: RecordState, issue: Issue, stage: string) => {
     const info = issue.kind ? { kind: issue.kind, code: issue.code ?? "operation-failed", resource: issue.resource, message: issue.message ?? issue.error, detail: issue.detail } : classify(new Error(issue.error));
-    const resource = info.resource ?? record.path;
+    const resource = info.resource ?? (info.code === "okf-binary" ? record.cwd : record.path);
     const key = JSON.stringify([info.kind, info.code, resource]);
     let group = groups.get(key);
     if (!group) { group = { kind: info.kind, code: info.code, resource, message: info.message, paths: new Set(), stages: new Set(), retryAt: issue.retryAt, detail: info.detail, attempts: issue.attempts ?? issue.failures, lastAttemptAt: issue.lastAttemptAt, legacyHistory: issue.attempts === undefined };  groups.set(key, group); }

@@ -9,6 +9,7 @@ export interface Config {
   maxCostPerCycle: number; dailyBudget: number;
   compaction: { enabled: boolean; minTokens: number; budgetTokens?: number };
   push: boolean;
+  modelTranscripts: boolean;
   stateDir: string;
 }
 const positive = (v: unknown, name: string, max: number): number => {
@@ -25,8 +26,8 @@ function keys(raw: Record<string, unknown>, allowed: string[], name: string) {
 export function parseConfig(raw: unknown, cwd: string): Config {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("maintenance config must be an object");
   const r = raw as Record<string, any>;
-  keys(r, ["enabled", "idleSeconds", "pollSeconds", "knowledge", "summaries", "upgrades", "reviewModel", "summaryModel", "maxCostPerCycle", "dailyBudget", "compaction", "push", "stateDir"], "maintenance");
-  for (const key of ["enabled", "knowledge", "summaries", "upgrades", "push"]) {
+  keys(r, ["enabled", "idleSeconds", "pollSeconds", "knowledge", "summaries", "upgrades", "reviewModel", "summaryModel", "maxCostPerCycle", "dailyBudget", "compaction", "push", "modelTranscripts", "stateDir"], "maintenance");
+  for (const key of ["enabled", "knowledge", "summaries", "upgrades", "push", "modelTranscripts"]) {
     if (r[key] !== undefined && typeof r[key] !== "boolean") throw new Error(`${key} must be boolean`);
   }
   for (const key of ["reviewModel", "summaryModel"]) {
@@ -43,16 +44,27 @@ export function parseConfig(raw: unknown, cwd: string): Config {
     pollSeconds: positive(r.pollSeconds ?? 5, "pollSeconds", 60),
     reviewModel: r.reviewModel, summaryModel: r.summaryModel,
     maxCostPerCycle: positive(r.maxCostPerCycle ?? 0.5, "maxCostPerCycle", 1000),
-    dailyBudget: positive(r.dailyBudget ?? 5, "dailyBudget", 10000), push: r.push ?? false,
+    dailyBudget: positive(r.dailyBudget ?? 5, "dailyBudget", 10000), push: r.push ?? false, modelTranscripts: r.modelTranscripts ?? true,
     compaction: { enabled: c.enabled ?? false, minTokens: nonnegative(c.minTokens ?? 50_000, "minTokens"),
       budgetTokens: c.budgetTokens === undefined ? undefined : positive(nonnegative(c.budgetTokens, "budgetTokens"), "budgetTokens", Number.MAX_SAFE_INTEGER) },
     stateDir: resolve(cwd, (r.stateDir ?? join(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), "session-maintenance")).replace(/^~(?=\/|$)/, homedir())),
   };
 }
-export function loadConfig(cwd: string): Config {
-  const file = join(cwd, ".pi", "maintenance.json");
-  return parseConfig(existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {}, cwd);
+export interface ConfigSource { kind: "workspace-file" | "defaults" | "host" | "programmatic"; file?: string }
+export function describeConfigSource(source: ConfigSource): string {
+  return source.kind === "workspace-file" ? source.file! : source.kind === "defaults"
+    ? `built-in defaults (no workspace config loaded from ${source.file})`
+    : source.kind === "host" ? "runtime host override (not a settings file)" : "programmatic configuration";
 }
+export function loadConfigWithSource(cwd: string): { config: Config; source: ConfigSource } {
+  const file = join(cwd, ".pi", "maintenance.json");
+  const present = existsSync(file);
+  try {
+    return { config: parseConfig(present ? JSON.parse(readFileSync(file, "utf8")) : {}, cwd),
+      source: { kind: present ? "workspace-file" : "defaults", file } };
+  } catch (error) { throw new Error(`Maintenance configuration ${file}: ${(error as Error).message}`); }
+}
+export function loadConfig(cwd: string): Config { return loadConfigWithSource(cwd).config; }
 export function duration(text: string): number {
   const m = /^(\d+(?:\.\d+)?)(s|m|h|d)?$/.exec(text);
   if (!m) throw new Error("Use a duration such as 30m, 2h, or seconds");
