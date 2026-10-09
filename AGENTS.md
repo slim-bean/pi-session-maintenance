@@ -12,6 +12,10 @@ Read README.md. Capability-driven maintenance, not a browser or knowledge implem
 - Native compaction is active-owner-only, checks file/in-memory agreement and compaction-aware tool pairing, and has a cooperative abort watchdog (never kill pi).
 - Use documented versioned event contracts; no imports of sibling projects' private modules.
 - Foreground input cancels background calls. Retain leases until operations have actually stopped.
+- modelTimeoutSeconds is a whole-number 1–3600s per-call/compaction deadline (default
+  600s). Pass modelTimeoutMs to adapters, preserve the first abort signal's reason,
+  and show elapsed/deadline/provider errors in history and session views. Never infer
+  timeout from an old generic aborted record or mutate the provider's native message.
 - Keep corpus operations inside the OKF adapter, including validation, automatic commits and configured non-force pushes.
 - `store.ts` archives resolved blockers to issue_history only with fresh adapter evidence.
   Preserve original counters/messages/unknown timestamps; compare against the current

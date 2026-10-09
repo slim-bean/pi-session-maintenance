@@ -36,11 +36,11 @@ function size(content: any): { tokens: number; unknown: boolean } {
   if (b.type === "toolCall") return { tokens: size(b.name ?? "").tokens + size(JSON.stringify(b.arguments ?? {})).tokens, unknown: Boolean(b.thoughtSignature) };
   return { tokens: 0, unknown: Boolean(content) };
 }
-interface Call { model?: string; actualModel?: string; reasoning?: string; maxTokens?: number; inputs: any[]; systems: any[]; users: any[]; output?: any; text: string; thinking: string; streamRecorded: boolean; usage?: any; stop?: string }
+interface Call { model?: string; actualModel?: string; reasoning?: string; maxTokens?: number; inputs: any[]; systems: any[]; users: any[]; output?: any; text: string; thinking: string; streamRecorded: boolean; usage?: any; stop?: string; abortReason?: string; errorMessage?: string; elapsedMs?: number; timeoutMs?: number }
 function calls(entries: any[]): Call[] {
   const result: Call[] = []; let current: Call | undefined;
   const begin = (d: any = {}) => { current = { model: d.provider && d.model ? `${d.provider}/${d.model}` : undefined,
-    reasoning: d.reasoning, maxTokens: d.maxTokens, inputs: [], systems: [], users: [], text: "", thinking: "", streamRecorded: false }; result.push(current); return current; };
+    reasoning: d.reasoning, maxTokens: d.maxTokens, timeoutMs: d.timeoutMs, inputs: [], systems: [], users: [], text: "", thinking: "", streamRecorded: false }; result.push(current); return current; };
   for (const e of entries) {
     const d = object(e.data);
     if (e.type === "custom" && e.customType === "maintenance.event" && d.type === "model") begin(object(d.detail));
@@ -52,12 +52,16 @@ function calls(entries: any[]): Call[] {
       }
       else if (m.role === "assistant") {
         const c = current ?? begin(); c.model = `${m.provider}/${m.model}`; c.actualModel = m.responseModel;
-        c.output = m.content; c.usage = m.usage ?? c.usage; c.stop = m.stopReason;
+        c.output = m.content; c.usage = m.usage ?? c.usage; c.stop = m.stopReason; c.errorMessage = m.errorMessage;
       }
     } else if (e.type === "custom" && e.customType === "maintenance.delta") {
       const c = current ?? begin(); c.streamRecorded = true; if (d.channel === "text") c.text += d.delta ?? ""; else if (d.channel === "thinking") c.thinking += d.delta ?? "";
     } else if (e.type === "custom" && e.customType === "maintenance.event" && ["usage", "model-end"].includes(d.type)) {
-      const c = current ?? begin(); c.usage = d.type === "usage" ? d.detail : d.detail?.usage; c.stop = d.detail?.stopReason ?? c.stop;
+      const c = current ?? begin(); c.usage = (d.type === "usage" ? d.detail : d.detail?.usage) ?? c.usage; c.stop = d.detail?.stopReason ?? c.stop;
+      if (d.type === "model-end") {
+        c.abortReason = d.detail?.abortReason; c.errorMessage = d.detail?.errorMessage ?? c.errorMessage;
+        c.elapsedMs = d.detail?.elapsedMs; c.timeoutMs = d.detail?.timeoutMs ?? c.timeoutMs;
+      }
     }
   }
   return result;
@@ -67,6 +71,8 @@ function usageRows(call: Call, index: number): Row[] {
   if (call.actualModel) rows.push({ label: "Actual response model", text: call.actualModel });
   if (call.reasoning) rows.push({ label: "Reasoning level", text: call.reasoning });
   if (call.maxTokens !== undefined) rows.push({ label: "Output limit", text: `${count(call.maxTokens)} tokens (not usage)` });
+  if (number(call.timeoutMs)) rows.push({ label: "Call deadline", text: `${call.timeoutMs! / 1000}s` });
+  if (number(call.elapsedMs)) rows.push({ label: "Call elapsed", text: `${(call.elapsedMs! / 1000).toFixed(1)}s` });
   const u = object(call.usage);
   const reported = [u.input, u.output, u.cacheRead, u.cacheWrite].every(number) && u.input + u.output + u.cacheRead + u.cacheWrite > 0;
   if (reported) {
@@ -87,6 +93,10 @@ function usageRows(call: Call, index: number): Row[] {
   rows.push({ label: "Visible input · estimate", text: input ? estimate(input) : "Unavailable (prompts not recorded)", tone: "muted" },
     { label: "Visible output · estimate", text: output ? estimate(output) + (call.output === undefined ? " (partial stream only)" : "") : "Unavailable (output not recorded)", tone: "muted" });
   if (call.stop) rows.push({ label: "Stop reason", text: call.stop, tone: ["error", "aborted", "length"].includes(call.stop) ? "warning" : "muted" });
+  if (call.abortReason) rows.push({ label: "Abort reason", text: call.abortReason, tone: "warning" });
+  if (call.errorMessage) rows.push({ label: "Provider error", text: call.errorMessage, tone: "warning" });
+  if (call.stop === "aborted" && !call.abortReason && !call.errorMessage) rows.push({ label: "Abort reason",
+    text: "Not recorded in this transcript; check the run termination details below. Older records cannot distinguish timeout from cancellation.", tone: "muted" });
   return rows;
 }
 function parse(text: string): any | undefined {
@@ -138,6 +148,8 @@ export function runRows(run: RunInfo, options: { prompts?: boolean; thinking?: b
       if (options.thinking && thinking) rows.push({ heading: true, text: "💭 Visible thinking" }, { text: thinking, tone: "muted" });
       rows.push(...usageRows(call, i));
     }
+    const end = entries.filter(e => e.type === "custom" && e.customType === "maintenance.end").at(-1)?.data;
+    if (end?.error) rows.push({ label: "Run termination", text: end.error, tone: "warning" });
     rows.push({ text: estimateNote, tone: "muted" }); return rows.slice(0, 4096);
   }
   // Outcomes first: let users see the actual result without wading through model JSON.

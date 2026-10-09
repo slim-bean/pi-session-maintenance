@@ -8,9 +8,9 @@ export interface RunMeta {
 export interface RunInfo extends RunMeta { id: string; file: string; ended?: number; status: string; progress?: string; lastEvent?: number; revision?: string }
 /** Optional, versioned adapter callback. No provider credentials/options are accepted. */
 export type ModelEvent =
-  | { type: "start"; provider: string; model: string; systemPrompt: string; messages: any[]; reasoning?: string; maxTokens?: number }
+  | { type: "start"; provider: string; model: string; systemPrompt: string; messages: any[]; reasoning?: string; maxTokens?: number; timeoutMs?: number }
   | { type: "delta"; channel: "text" | "thinking"; delta: string }
-  | { type: "end"; message: any };
+  | { type: "end"; message: any; abortReason?: string; elapsedMs?: number; timeoutMs?: number };
 const MAX_FILE = 32 * 1024 * 1024;
 const MAX_VIEW = 2 * 1024 * 1024;
 const MAX_RUNS = 200;
@@ -161,8 +161,9 @@ export class RunLog {
   model(event: ModelEvent) {
     this.check();
     if (!this.captureModels) {
-      if (event.type === "start") this.event("model", { provider: event.provider, model: event.model, reasoning: event.reasoning, maxTokens: event.maxTokens });
-      if (event.type === "end") this.event("model-end", { stopReason: event.message.stopReason, usage: event.message.usage });
+      if (event.type === "start") this.event("model", { provider: event.provider, model: event.model, reasoning: event.reasoning, maxTokens: event.maxTokens, timeoutMs: event.timeoutMs });
+      if (event.type === "end") this.event("model-end", { stopReason: event.message.stopReason, usage: event.message.usage,
+        errorMessage: event.message.errorMessage, abortReason: event.abortReason, elapsedMs: event.elapsedMs, timeoutMs: event.timeoutMs });
       if (event.type === "delta" && this.now() - this.lastHeartbeat >= 1000) {
         this.event("model-progress", { channel: event.channel, characters: event.delta.length }); this.lastHeartbeat = this.now();
       }
@@ -176,12 +177,14 @@ export class RunLog {
       if (this.now() - this.lastFlush >= 250 || this.pendingChars >= 8192) this.flush();
     } else if (event.type === "start") {
       this.flush();
-      this.event("model", { provider: event.provider, model: event.model, reasoning: event.reasoning, maxTokens: event.maxTokens });
+      this.event("model", { provider: event.provider, model: event.model, reasoning: event.reasoning, maxTokens: event.maxTokens, timeoutMs: event.timeoutMs });
       this.manager.appendModelChange(event.provider, event.model);
       this.manager.appendMessage({ role: "system", content: event.systemPrompt, timestamp: this.now() });
       for (const message of event.messages) this.manager.appendMessage(message);
     } else {
       this.flush(); this.manager.appendMessage(event.message);
+      this.event("model-end", { stopReason: event.message.stopReason, errorMessage: event.message.errorMessage,
+        abortReason: event.abortReason, elapsedMs: event.elapsedMs, timeoutMs: event.timeoutMs });
     }
   }
   flush() {

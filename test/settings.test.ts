@@ -27,15 +27,18 @@ test("interactive settings edit a draft and save validated workspace values atom
   const dir = mkdtempSync(join(tmpdir(), "maintenance-settings-"));
   try {
     const cfg = parseConfig({}, dir);
-    const h = ui(dir, ["Idle delay:", "Review model:", "local/worker", "Maintenance compaction:", "Between-turn context budget:", "Daily model budget:", "Save & apply"], ["30m", "200k", "$2.50"]);
+    const h = ui(dir, ["Idle delay:", "Model call / compaction timeout:", "Review model:", "local/worker", "Maintenance compaction:", "Between-turn context budget:", "Daily model budget:", "Save & apply"], ["30m", "20m", "200k", "$2.50"]);
     const result = await editSettings(h.ctx, cfg, () => {});
     assert.ok(result); assert.equal(result.idleSeconds, 1800); assert.equal(result.reviewModel, "local/worker");
+    assert.equal(result.modelTimeoutSeconds, 1200);
     assert.equal(result.compaction.enabled, true); assert.equal(result.compaction.budgetTokens, 200000); assert.equal(result.dailyBudget, 2.5);
     assert.equal(existsSync(settingsFile(dir)), false); // menu itself never writes
     saveSettings(dir, result, null);
     const persisted = JSON.parse(readFileSync(settingsFile(dir), "utf8"));
     assert.equal(persisted.idleSeconds, 1800); assert.equal(persisted.reviewModel, "local/worker");
-    assert.equal(cfg.idleSeconds, 600); assert.equal(cfg.compaction.enabled, false);
+    assert.equal(cfg.idleSeconds, 600); assert.equal(cfg.compaction.enabled, false); assert.equal(cfg.modelTimeoutSeconds, 600);
+    assert.equal(persisted.modelTimeoutSeconds, 1200);
+    for (const value of [0, -1, 3601, 1.5, "600"]) assert.throws(() => parseConfig({ modelTimeoutSeconds: value }, dir), /modelTimeoutSeconds/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 test("cancel, invalid input and declined push do not mutate the original config", async () => {

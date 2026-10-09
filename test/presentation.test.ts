@@ -62,6 +62,34 @@ test("JSON reviews/results become readable rows with source references and valid
     assert.ok(tones.includes("success"));
   } finally { f.close(); }
 });
+test("abort diagnostics and provider errors are visible in history and native-session views, with model capture on or off", () => {
+  for (const capture of [true, false]) {
+    const f = fixture(capture);
+    try {
+      f.log.model({ ...start, timeoutMs: 600000 });
+      f.log.model({ type: "end", message: { ...reply(usage), stopReason: "aborted", errorMessage: "Request aborted" },
+        abortReason: "Model call timed out after 600s", elapsedMs: 600010, timeoutMs: 600000 });
+      f.log.finish("error", "Model call timed out after 600s");
+      for (const session of [true, false]) {
+        const rows = runRows(findRun(f.dir, f.dir, f.log.id)!, { session });
+        assert.equal(rows.find(r => r.label === "Abort reason")!.text, "Model call timed out after 600s");
+        assert.equal(rows.find(r => r.label === "Provider error")!.text, "Request aborted");
+        assert.equal(rows.find(r => r.label === "Call deadline")!.text, "600s");
+        assert.equal(rows.find(r => r.label === "Call elapsed")!.text, "600.0s");
+      }
+    } finally { f.close(); }
+  }
+});
+test("old aborted records show uncertainty and preserve the run termination separately", () => {
+  const f = fixture();
+  try {
+    f.log.model(start); f.log.model({ type: "end", message: { ...reply(usage), stopReason: "aborted" } });
+    f.log.finish("cancelled", "Foreground activity takes priority");
+    const rows = runRows(findRun(f.dir, f.dir, f.log.id)!, { session: true });
+    assert.match(rows.find(r => r.label === "Abort reason")!.text, /Not recorded/);
+    assert.equal(rows.find(r => r.label === "Run termination")!.text, "Foreground activity takes priority");
+  } finally { f.close(); }
+});
 test("partial output stays labeled partial; unknown JSON fields are kept, and raw control sequences never execute", () => {
   const f = fixture();
   try {

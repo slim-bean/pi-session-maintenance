@@ -27,6 +27,11 @@ Optional dependencies are separate packages, not bundled or auto-installed:
 - Updated **pi-session-search** (not pi-search): summary adapter and existing cache.
 - Native pi compaction needs no extra package.
 
+**Release 0.4.0** adds configurable model-call/compaction deadlines (ten minutes
+by default) and explicit abort causes, elapsed times and provider errors in run
+history/session views. Pair with pi-session-search 0.7.0 and pi-okf-agent-memory
+0.5.0 so both adapters honor timeout settings and report cancellation diagnostics.
+
 **Release 0.3.0** adds private run transcripts, passive watch/history/session
 viewers, immediate safe run/retry admission, and configuration/binary diagnostics
 with evidence-based blocker retirement. Pair with pi-session-search 0.6.0 and
@@ -55,6 +60,7 @@ Optional `.pi/maintenance.json` in the current working directory:
   "dailyBudget": 5,
   "push": false,
   "modelTranscripts": true,
+  "modelTimeoutSeconds": 600,
   "compaction": {
     "enabled": false,
     "minTokens": 50000,
@@ -67,7 +73,14 @@ All fields are optional; omit model fields to pin each session's maintenance job
 to the active model when first processed. Later foreground model switches alone
 do not regenerate historical work; explicit model-setting changes do. Default
 compaction is **off**, and its between-turn `budgetTokens` trigger is absent.
-Idle duration is seconds; token limits are nonnegative safe integers (budget must
+Idle duration is seconds. `modelTimeoutSeconds` defaults to **600 (10 minutes)**,
+up from the previous hardcoded three-minute limit; set any whole number from 1 to
+3600. It bounds each knowledge/upgrade/summary model call and the native compaction
+watchdog, not an entire multi-section job. `/maintenance settings` can edit it with
+values like `20m`. Foreground/peer input and manual cancellation still stop work
+immediately; a longer deadline does not disable those safeguards. Provider/server
+limits can end a call earlier and are not overridden by this setting.
+Token limits are nonnegative safe integers (budget must
 be positive). Unknown keys/invalid types fail rather than silently change behavior.
 `stateDir` optionally relocates the private ledger; its default is
 `~/.pi/agent/session-maintenance` (honors `PI_CODING_AGENT_DIR`). Changing settings
@@ -219,7 +232,8 @@ validation records are classified without deleting receipts/plans; when the upda
 adapter reports advisory policy, those plans are re-admitted for real validation and
 Git finalization. They are never marked complete merely because policy changed.
 
-Native maintenance compaction requests abort after a three-minute watchdog; it never kills
+Native maintenance compaction requests abort after the configured model-call
+watchdog (10 minutes by default); it never kills
 pi or releases a still-running operation early. Failed
 pushes/finalization do not cause new extraction calls. A missing/oversized corpus,
 unsupported model, governance-sensitive repair, failed validation or unresolved Git
@@ -287,7 +301,12 @@ proposals. Bold headings, icons and theme colors distinguish success, warnings
 and failures. `r` toggles raw JSON; `t` toggles visible thinking. Unknown JSON fields
 remain visible as readable key/value rows rather than being silently dropped.
 
-Model details include requested/response model, reasoning level and output limit.
+Model details include requested/response model, reasoning level, output limit,
+call deadline and elapsed time. New aborted calls show the originating cause:
+timeout, local/peer foreground activity, explicit cancellation, runtime shutdown,
+or provider-reported abortion. The native-session view also shows run termination
+and provider error text. Older records display available errors without guessing
+whether an unspecified abort was a timeout.
 Provider-reported input/output/cache token counts and recorded cost are shown when
 available. Costs are pi-normalized recorded amounts, not independently verified invoices. Input includes uncached + cache read + cache write; reasoning output
 and 1-hour cache writes are labeled subsets, never added again. Visible-text

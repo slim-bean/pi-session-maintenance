@@ -59,6 +59,7 @@ export async function editSettings(ctx: ExtensionContext, current: Config, asser
     const options = [
       { key: "enabled", label: `Configured enablement: ${enabled(draft.enabled)}` },
       { key: "idleSeconds", label: `Idle delay: ${timeSpan(draft.idleSeconds)}` },
+      { key: "modelTimeoutSeconds", label: `Model call / compaction timeout: ${timeSpan(draft.modelTimeoutSeconds)}` },
       { key: "knowledge", label: `Knowledge review: ${enabled(draft.knowledge)}` },
       { key: "upgrades", label: `OKF upgrades: ${enabled(draft.upgrades)}` },
       { key: "summaries", label: `Search summaries: ${enabled(draft.summaries)}` },
@@ -99,8 +100,8 @@ export async function editSettings(ctx: ExtensionContext, current: Config, asser
         if (choice === undefined) continue;
         next[key] = choice === null ? undefined : choice;
       } else {
-        const numeric = key as "idleSeconds" | "pollSeconds" | "dailyBudget" | "maxCostPerCycle" | "minTokens" | "budgetTokens";
-        const prompt = numeric === "idleSeconds" ? "Idle delay (e.g. 10m, 30m or seconds)" : numeric === "pollSeconds" ? "Check interval (seconds, max 60)" :
+        const numeric = key as "idleSeconds" | "pollSeconds" | "modelTimeoutSeconds" | "dailyBudget" | "maxCostPerCycle" | "minTokens" | "budgetTokens";
+        const prompt = numeric === "modelTimeoutSeconds" ? "Model call / compaction timeout (e.g. 10m, 20m; max 1h)" : numeric === "idleSeconds" ? "Idle delay (e.g. 10m, 30m or seconds)" : numeric === "pollSeconds" ? "Check interval (seconds, max 60)" :
           numeric === "minTokens" ? "Idle compaction floor (e.g. 50k; 0 removes the floor)" : numeric === "budgetTokens" ? "Between-turn token budget (e.g. 200k; off disables it)" : "Model budget in USD (approximate; positive number)";
         const previous = numeric === "minTokens" || numeric === "budgetTokens" ? draft.compaction[numeric] : draft[numeric];
         const text = await ctx.ui.input(prompt, previous?.toString() ?? "off");
@@ -108,7 +109,7 @@ export async function editSettings(ctx: ExtensionContext, current: Config, asser
         if (text === undefined) continue;
         if (numeric === "minTokens") next.compaction.minTokens = tokenCount(text);
         else if (numeric === "budgetTokens") next.compaction.budgetTokens = /^off$/i.test(text.trim()) ? undefined : tokenCount(text);
-        else if (numeric === "idleSeconds" || numeric === "pollSeconds") next[numeric] = duration(text.trim());
+        else if (numeric === "idleSeconds" || numeric === "pollSeconds" || numeric === "modelTimeoutSeconds") next[numeric] = duration(text.trim());
         else next[numeric] = Number(text.trim().replace(/^\$/, "").replace(/,/g, ""));
       }
       draft = parseConfig(next, ctx.cwd);

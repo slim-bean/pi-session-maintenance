@@ -33,6 +33,7 @@ async function fixture(options: any = {}) {
       r.result = Promise.resolve(channel === "memory" ? { available: true, upgraded, key: "memory:1", orphanPolicy: options.orphanPolicy } : { key: "summary:1", complete: false }); return;
     }
     calls.push(r.operation);
+    assert.equal(r.modelTimeoutMs, (options.config?.modelTimeoutSeconds ?? 600) * 1000);
     r.assertSource();
     r.result = Promise.resolve().then(() => {
       if (options.fail === r.operation) throw Object.assign(new Error("synthetic failure"), options.issue ?? {});
@@ -49,6 +50,16 @@ async function fixture(options: any = {}) {
     set idle(v: boolean) { idle = v; }, set pending(v: boolean) { pending = v; }, set tokens(v: number) { tokens = v; },
     advance(ms = 2000) { clock += ms; }, async close() { await c.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
+
+test("compaction watchdog uses the configured deadline and reports timeout instead of a generic provider abort", async () => {
+  const f = await fixture({ memory: false, summary: false, config: { modelTimeoutSeconds: 1, compaction: { enabled: true, minTokens: 0 } } });
+  const keepAlive = setTimeout(() => {}, 2000);
+  try {
+    f.ctx.compact = ({ onError }: any) => { f.ctx.abort = () => onError(new Error("Request aborted")); };
+    f.advance(); await f.c.tick();
+    assert.match(f.store.get(f.path)!.errors!.compact!.error, /Compaction timed out after 1s/);
+  } finally { clearTimeout(keepAlive); await f.close(); }
+});
 
 test("idle flow upgrades, reviews, summarizes, compacts once; resumed conversation becomes dirty", async () => {
   const f = await fixture();

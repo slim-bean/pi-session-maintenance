@@ -93,6 +93,7 @@ export function formatStatus(status: Status, caps: Capabilities, now = Date.now(
     `Session maintenance · ${mode}`, `State: ${state}`, `Owner: ${owner}`,
     `Stages: ${stages.join(" · ")}`,
     `Schedule: after ${timeSpan(cfg.idleSeconds)} idle · check every ${timeSpan(cfg.pollSeconds)}`,
+    `Model call / compaction timeout: ${timeSpan(cfg.modelTimeoutSeconds)}`,
     `Budget: ${money(status.spentToday)} / ${money(cfg.dailyBudget)} today · ${money(cfg.maxCostPerCycle)} per opportunity (approx.)`,
     `Sessions: ${records.length} observed · ${pending} need saved coverage`,
     `Issues: ${groups.filter((g) => g.kind === "error").length} errors · ${groups.filter((g) => g.kind === "blocked").length} blockers · ${groups.filter((g) => g.kind === "deferred").length} waiting`,
@@ -168,6 +169,7 @@ export function formatSettings(cfg: Config, cwd: string): string {
     `Model budget: ${money(cfg.maxCostPerCycle)} per opportunity · ${money(cfg.dailyBudget)} per UTC day (approx.)`,
     `Compaction: ${onOff(cfg.compaction.enabled)} · Idle floor: ${cfg.compaction.minTokens.toLocaleString()} tokens · Between-turn budget: ${cfg.compaction.budgetTokens?.toLocaleString() ?? "off"}`,
     `Push to configured upstream: ${onOff(cfg.push)}`,
+    `Model call / compaction timeout: ${timeSpan(cfg.modelTimeoutSeconds)}`,
     `Private model transcripts: ${onOff(cfg.modelTranscripts)} · /maintenance watch · /maintenance history`,
     `Private state: ${prettyPath(cfg.stateDir)} (change requires reload)`,
   ].join("\n");

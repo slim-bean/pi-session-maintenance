@@ -40,7 +40,7 @@ export class Coordinator {
   async attach(ctx: ExtensionContext, configSource?: ConfigSource) {
     if (configSource) this.configSource = configSource;
     this.generation++;
-    await this.cancel();
+    await this.cancel("Session changed or maintenance runtime reinitialized");
     if (this.current) {
       if (existsSync(this.current)) this.store.observe(snapshot(this.current));
       this.store.release("session:" + this.current);
@@ -233,7 +233,7 @@ export class Coordinator {
     let cycleCost = 0;
     return {
       protocol: 1, operation, context: this.ctx!, cwd: s.cwd, path: s.path, sourceHash: s.hash, source: s,
-      workDir: join(this.config.stateDir, "work"), model,
+      workDir: join(this.config.stateDir, "work"), model, modelTimeoutMs: this.config.modelTimeoutSeconds * 1000,
       maxCost: Math.min(this.config.maxCostPerCycle, Math.max(0, this.config.dailyBudget - this.store.spent())), signal,
       assertSource: () => {
         signal.throwIfAborted();
@@ -307,7 +307,9 @@ export class Coordinator {
           const key = this.compactKey();
           this.compactStart = this.now();
           let timedOut = false;
-          const watchdog = setTimeout(() => { timedOut = true; this.ctx?.abort(); }, 180_000);
+          const timeoutMs = this.config.modelTimeoutSeconds * 1000;
+          log.event("deadline", { timeoutMs, operation: "native compaction" });
+          const watchdog = setTimeout(() => { timedOut = true; this.ctx?.abort(); }, timeoutMs);
           watchdog.unref?.();
           try {
             await new Promise<void>((resolve, reject) => {
@@ -316,12 +318,13 @@ export class Coordinator {
                   try { this.store.account(result?.usage?.cost.total ?? 0); resolve(); }
                   catch (error) { reject(error); }
                 },
-                onError: reject,
+                onError: error => reject(timedOut ? new Error(`Compaction timed out after ${this.config.modelTimeoutSeconds}s`)
+                  : abort.signal.aborted ? abort.signal.reason : error),
               });
             });
           } finally { clearTimeout(watchdog); }
           this.compactStart = undefined;
-          if (timedOut) throw new Error("Compaction exceeded its 3-minute maintenance watchdog");
+          if (timedOut) throw new Error(`Compaction timed out after ${this.config.modelTimeoutSeconds}s`);
           abort.signal.throwIfAborted();
           const record = this.store.get(source.path)!;
           record.compact = { hash: before, key, at: this.now() };
@@ -344,11 +347,13 @@ export class Coordinator {
           log.event("outcome", outcome); log.finish(outcome.complete ? "complete" : "checkpoint");
           this.progress = `${stage} ${outcome.complete ? "complete" : "checkpoint saved; more work pending"}`;
         }
-      } catch (error) {
+      } catch (caught) {
+        const error = abort.signal.aborted ? abort.signal.reason ?? caught : caught;
         this.compactStart = undefined;
         try {
-          log.event(abort.signal.aborted ? "cancelled" : "error", abort.signal.aborted ? { reason: (error as Error).message } : classify(error));
-          log.finish(abort.signal.aborted ? "cancelled" : "error", (error as Error).message ?? String(error));
+          log.event(abort.signal.aborted ? "cancelled" : "error", abort.signal.aborted
+            ? { reason: error instanceof Error ? error.message : String(error), elapsedMs: this.now() - started } : classify(error));
+          log.finish(abort.signal.aborted ? "cancelled" : "error", error instanceof Error ? error.message : String(error));
         } catch { this.footerError = true; } // storage failure must not erase the original blocker or leak ownership
         if (!abort.signal.aborted) {
           this.fail(this.store.get(source.path)!, stage, error);
@@ -442,8 +447,8 @@ export class Coordinator {
     });
     return response;
   }
-  async cancel() {
-    this.running?.abort.abort(new Error("Maintenance cancelled"));
+  async cancel(reason = "Maintenance cancelled by command") {
+    this.running?.abort.abort(new Error(reason));
     if (this.running?.stage === "compact") this.ctx?.abort();
     this.render();
     await this.running?.promise;
@@ -465,7 +470,7 @@ export class Coordinator {
   }
   async configure(config: Config, source: ConfigSource = { kind: "host" }) {
     if (config.stateDir !== this.config.stateDir) throw new Error("Changing stateDir requires reload");
-    await this.cancel();
+    await this.cancel("Maintenance settings changed");
     if (this.closed) throw new Error("Maintenance runtime changed while applying settings");
     clearInterval(this.timer); this.timer = undefined;
     this.config = config; this.configSource = source;
@@ -535,7 +540,7 @@ export class Coordinator {
     this.closed = true;
     clearInterval(this.timer); this.timer = undefined;
     clearInterval(this.animation); this.animation = undefined;
-    await this.cancel();
+    await this.cancel("Maintenance runtime shutting down or reloading");
     // tick can be in a read-only adapter preflight, not yet reflected in running.
     while (this.tickRunning) await new Promise((resolve) => setTimeout(resolve, 5));
     if (this.current && existsSync(this.current)) {
