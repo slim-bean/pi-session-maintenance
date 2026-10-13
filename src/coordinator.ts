@@ -169,6 +169,11 @@ export class Coordinator {
               try { memoryStatus = await invoke(this.bus, caps.memory.channel, statusRequest(this.config.reviewModel ?? current.reviewModel)); }
               catch (error) { this.fail(current, "upgrade", error); }
             }
+            if (memoryStatus?.available && this.config.memoryOwnership === "full" && memoryStatus.ownershipProtocol !== 1) {
+              this.fail(current, "upgrade", maintenanceIssue("blocked", "memory-ownership-adapter", source.cwd,
+                "Full memory ownership requires an updated OKF adapter advertising ownershipProtocol:1; update/reload the deployed package."));
+              memoryStatus = undefined; // never silently fall back to limited authority
+            }
             if (memoryStatus?.available === false) this.fail(current, "upgrade", maintenanceIssue("blocked", "memory-bundle", source.cwd,
               "No knowledge bundle is available; run /memory-setup before memory maintenance."));
             if (memoryStatus?.orphanPolicy === "advisory") {
@@ -181,6 +186,18 @@ export class Coordinator {
                 this.store.put(current);
               }
             }
+            if (memoryStatus?.repairPolicy === 1) {
+              for (const stage of ["review", "upgrade"] as const) {
+                const issue = current.errors?.[stage];
+                if (issue?.code !== "memory-validation" || ((issue.detail as any)?.repair?.automatic === true &&
+                    !(this.config.memoryOwnership === "full" && (issue.detail as any)?.ownership !== "full"))) continue;
+                // New adapter authority re-admits old blocked plans, not completed
+                // receipts. Keep their diagnostic/counters until real repair evidence.
+                issue.kind = "deferred"; issue.code = "memory-repair-pending"; issue.retryAt = 0;
+                issue.message = "Automatic structural repair is now available; saved plan queued for repair and validation.";
+                this.store.put(current);
+              }
+            }
             if (generation !== this.generation || this.closed || !this.idle() || this.store.control(this.ctx.cwd).cancel_seq !== cancelSeq) return;
             if (memoryStatus?.available === true) {
               const upgrade = current.errors?.upgrade;
@@ -190,6 +207,20 @@ export class Coordinator {
               const review = current.errors?.review;
               if (review && isBinaryIssue(review)) this.store.resolveIssue(current, "review",
                 { adapter: caps.memory?.channel, available: true, key: memoryStatus.key, reason: "Fresh adapter status confirms binary lookup/contract is healthy" });
+              if (this.config.memoryOwnership === "full" && memoryStatus.ownershipProtocol === 1) {
+                for (const stage of ["review", "upgrade", "push"] as const) {
+                  const issue = current.errors?.[stage];
+                  const detail = issue?.detail as any;
+                  if (!issue || issue.kind === "deferred" || detail?.ownership === "full" || detail?.admissionOwnership === "full") continue;
+                  // New standing authority gets one immediate admission, not a
+                  // fabricated success or an endless reset of full-worker backoff.
+                  issue.detail = { ...(detail && typeof detail === "object" ? detail : { previousDetail: detail }), admissionOwnership: "full",
+                    previousIssue: { kind: issue.kind, code: issue.code, message: issue.message ?? issue.error } };
+                  issue.kind = "deferred"; issue.code = "memory-recovery-pending"; issue.retryAt = 0;
+                  issue.message = "Full memory ownership is now available; prior limited-authority failure queued for autonomous recovery.";
+                  this.store.put(current);
+                }
+              }
             }
             const due = (stage: Stage) => (current.errors?.[stage]?.retryAt ?? 0) <= this.now();
             if (caps.memory && memoryStatus?.available && !memoryStatus.upgraded && this.config.upgrades && due("upgrade")) {
@@ -234,6 +265,7 @@ export class Coordinator {
     return {
       protocol: 1, operation, context: this.ctx!, cwd: s.cwd, path: s.path, sourceHash: s.hash, source: s,
       workDir: join(this.config.stateDir, "work"), model, modelTimeoutMs: this.config.modelTimeoutSeconds * 1000,
+      memoryOwnership: this.config.memoryOwnership, memoryGitIdentity: this.config.memoryGitIdentity, modelTranscripts: this.config.modelTranscripts,
       maxCost: Math.min(this.config.maxCostPerCycle, Math.max(0, this.config.dailyBudget - this.store.spent())), signal,
       assertSource: () => {
         signal.throwIfAborted();

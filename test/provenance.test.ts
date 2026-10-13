@@ -18,6 +18,18 @@ test("configuration provenance distinguishes loaded files, absent defaults and h
     writeFileSync(file, "{broken"); assert.throws(() => loadConfigWithSource(dir), error => (error as Error).message.includes(file));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+test("ownership-default provenance is captured rather than inferred from later environment changes", () => {
+  const env = { ...process.env }; const dir = mkdtempSync(join(tmpdir(), "ownership-provenance-"));
+  try {
+    process.env.PI_MEMORY_OWNERSHIP = "full";
+    const loaded = loadConfigWithSource(dir); assert.equal(loaded.config.memoryOwnership, "full");
+    delete process.env.PI_MEMORY_OWNERSHIP;
+    assert.match(describeConfigSource(loaded.source), /PI_MEMORY_OWNERSHIP/);
+    mkdirSync(join(dir, ".pi")); writeFileSync(join(dir, ".pi/maintenance.json"), JSON.stringify({ memoryOwnership: "limited" }));
+    assert.equal(loadConfigWithSource(dir).source.ownershipDefault, undefined);
+  } finally { process.env = env; rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("legacy binary errors group by workspace and resolution archives original counters without clobbering a newer error", () => {
   const dir = mkdtempSync(join(tmpdir(), "maintenance-resolution-")); const store = new Store(dir);
   try {

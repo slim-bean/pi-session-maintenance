@@ -2,7 +2,7 @@
 
 Optional, capability-driven idle maintenance for pi: **OKF upgrades and knowledge
 review → session-search summaries → optional compaction**. No permanent daemon,
-browser engine, authenticated pi subprocess, or Yono-specific code.
+browser engine, authenticated pi subprocess, or host-platform dependency.
 
 Loading this package authorizes the configured unattended model calls and
 agent-owned knowledge maintenance. Normal human approval is not required.
@@ -53,6 +53,7 @@ Optional `.pi/maintenance.json` in the current working directory:
   "pollSeconds": 5,
   "upgrades": true,
   "knowledge": true,
+  "memoryOwnership": "limited",
   "summaries": true,
   "reviewModel": "provider/model-id",
   "summaryModel": "provider/model-id",
@@ -68,6 +69,57 @@ Optional `.pi/maintenance.json` in the current working directory:
   }
 }
 ```
+
+### Memory ownership
+
+`memoryOwnership` is **`limited`** (automatic index/link repair) or **`full`**
+(agent-owned, tool-capable recovery with no normal human approval). Explicit
+workspace/host settings take precedence, then `PI_MEMORY_OWNERSHIP`; otherwise
+ownership defaults to **limited** in every environment. Hosts explicitly enable
+full ownership through generic configuration, just as they opt into compaction.
+No sandbox/platform detection changes authority. Status reports the selected mode
+and captured environment-default origin. Configuration is not authenticated
+identity or a security boundary. Both updated packages must be loaded; full requests require
+an OKF adapter advertising `ownershipProtocol:1`, never silent limited fallback.
+
+For unattended hosts or provisioning:
+
+```sh
+export PI_MEMORY_OWNERSHIP=full  # explicit default; limited opts out
+```
+
+Or send host configuration with `settings: {memoryOwnership:"full", ...}`.
+`/maintenance settings` exposes ownership and an optional explicit
+`memoryGitIdentity:{name,email}`. Full mode applies that authorized identity to
+repository-local Git config (including an enclosing repository); omission uses
+existing Git configuration/environment. It does not guess OS/hostname authors.
+Loading full mode delegates memory setup, metadata/governance/lifecycle repair,
+factual investigation, qualification/archival of unsupported claims, and scoped
+Git recovery. Missing facts are a reason to investigate or qualify memory—not
+wait for a human. Publication still requires the separate push setting/request.
+
+Full recovery uses the existing registry and read/edit/write/shell tools. It
+persists cases, original-content checkpoints and execution evidence, checks source
+and bundle ownership, then requires actual validation/commit proof. Eight model
+turns per opportunity and the existing approximate budget/deadline gates bound
+work; exhausted opportunities continue automatically. Failed ordinary extraction
+or oversized corpora can use an incremental tool-based review bound to the current
+source hash; installed-step attestations still pass runner ordering/verifiers.
+Content fingerprints and a daily health key re-admit validation even when saved
+conversation coverage is fresh, without replaying committed extraction sections.
+
+External prerequisites include unavailable credentials/mounts, incompatible
+runtime/model capabilities, foreign/live ownership, and Git operations belonging
+to unrelated project state. They remain structured host/owning-agent prerequisites,
+not console questions. Model claims of external blockers need failed operational
+evidence; unresolved memory facts/policy alone cannot park autonomous repair.
+
+**Full mode is powerful:** shell inherits the Pi process's filesystem, network and
+credential access. Memory-only shell scope is cooperative, not an OS sandbox;
+private transcripts are not infrastructure-authenticated audit. These worker tools
+do not inherit foreground tool overrides/approval extensions. Use full-process
+isolation for unattended deployments, or deliberately accept host-process
+permissions when opting in locally. Never assume tool-only isolation covers this worker.
 
 All fields are optional; omit model fields to pin each session's maintenance jobs
 to the active model when first processed. Later foreground model switches alone
@@ -93,8 +145,9 @@ prints a readable overview. Storage location is read-only in the menu because
 changing the ledger path requires reload. Existing workspace off/suspension overrides
 survive other settings edits; explicitly enabling a disabled configuration clears off.
 
-Each scheduling opportunity performs at most one new model-backed section/step,
-then yields. Stages and summary calls are sequential (summary concurrency **1**).
+Normal extraction performs at most one new model-backed section/step per
+opportunity, then yields. Full recovery may use up to eight sequential model turns
+within the same budget/deadline gates; no parallel repair agent is launched. Stages and summary calls are sequential (summary concurrency **1**).
 Daily spend is recorded separately from the foreground conversation, across
 instances sharing the state directory. Cost limits are **approximate**: an admitted
 call can exceed a limit, aborted calls may have unreported usage, and model-server
@@ -223,7 +276,22 @@ Status states those gates and notes that retrying cannot fix a static prerequisi
 Configuration/validation/Git blockers include concrete actions (reported findings,
 provider setup, author identity, upstream, conflicts, credentials or signing).
 Repeated unknown failures recommend investigation, while automatic retries remain
-scheduled. No dedicated general corpus-repair workflow is implied.
+scheduled.
+
+In limited mode, validation repair is **agent-owned and automatic within structural authority**:
+missing index navigation and drifted descriptions are restored from concept metadata;
+a tool-free model can correct evidenced broken Markdown link targets. Repairs use
+the existing bundle lease, source/corpus guards, private checkpoints and scoped
+validated commits. They do not require `/maintenance retry`, human approval or a
+foreground agent handoff. If extraction used this opportunity's model call, repair
+queues for the next idle opportunity; saved extraction is reused after repair.
+Repair proposals are bounded to two per unchanged corpus/policy, with findings,
+applied files/rationale and fresh validation visible in watch/history. Failed repair
+commits retry before new extraction. Newly advertised repair support automatically
+re-admits old validation-blocked plans without deleting their attempt history;
+already-attempted automatic repairs retain backoff. No fabricated facts, provenance, governance,
+review dates or semantic relationships; findings outside structural authority stay
+explicit blockers with the reason automatic repair could not proceed.
 
 Successful OKF reviews can retain non-blocking validation advisories. Independent
 concepts do not require invented relationships; schema, index/drift, broken links,
@@ -236,23 +304,28 @@ Native maintenance compaction requests abort after the configured model-call
 watchdog (10 minutes by default); it never kills
 pi or releases a still-running operation early. Failed
 pushes/finalization do not cause new extraction calls. A missing/oversized corpus,
-unsupported model, governance-sensitive repair, failed validation or unresolved Git
-conflict is a visible blocker, not an invented success. Knowledge uses attributed
+unsupported model or findings outside the configured authority remain visible,
+not invented successes. Full mode investigates broader corpus/Git failures instead
+of parking them for human repair; unavailable host resources remain prerequisites. Knowledge uses attributed
 addenda and automatic bundle-scoped commits, preserving unrelated outer-repository
 staging. Push sends the **existing configured Git branch**, not a file-filtered
 remote update; configure it only for the repository/upstream you intend to publish.
 No force push, auto-rebase/reset, password prompt, fabricated identity or hook bypass.
 
-## Host integration / Yono
+## Host integration
 
-Yono integration is left to the host. **Disable its old independent hygiene loop
-before enabling this coordinator**; this package cannot prevent an uncooperative
-extension from issuing parallel compactions/reviews.
+Deployment-specific defaults belong to the host adapter, not these extensions.
+Hosts can enable full ownership and idle compaction while keeping workspace
+preferences authoritative by merging defaults with workspace settings before
+sending `configure`. **Disable any old independent hygiene loop before enabling
+this coordinator**; this package cannot prevent an uncooperative extension from
+issuing parallel compactions/reviews.
 
 A trusted adapter can use `pi-session-maintenance:control:v1`:
 
 ```ts
 const request = { protocol: 1, operation: "configure", settings: {
+  memoryOwnership: "full",  // unattended agent-owned memory; no human approval
   idleSeconds: 900,
   compaction: { enabled: true, minTokens: 50000, budgetTokens: 250000 }
 }, result: undefined };
@@ -263,8 +336,8 @@ await request.result;
 The responder assigns `result` synchronously. Operations: `status`, `configure`
 (full settings object, defaults fill omissions), `run`, `cancel`, `suspend` with
 `seconds`, and `resume`. Configure changes are runtime-local, not written into
-Yono/persona files. Runtime replacement invalidates prior contexts. `stateDir`
-changes require reload. No frontend/CRD changes are needed in this repository.
+host/persona files. Runtime replacement invalidates prior contexts. `stateDir`
+changes require reload. No host-platform client or schema is implemented here.
 
 Packages advertise `{memory?,summary?}` on
 `pi-session-maintenance:capabilities:v1` using `{protocol:1,channel}` descriptors.
@@ -330,7 +403,10 @@ reasoning. HTTP credentials/transport options are not intentionally recorded, bu
 prompts, outputs and error messages can themselves contain secrets; inspect/redact
 before sharing. Directories are `0700`, files `0600`. Set
 `modelTranscripts:false` (also available in settings) to keep only operational events
-and accounting in future runs; this does not erase existing transcripts. Completed
+and accounting in future runs; this does not erase existing run transcripts. Full
+recovery also omits durable provider-message context when disabled, re-investigating
+from operational cases/checkpoints on continuation. Checkpoints still contain private
+memory content and tool action metadata. Completed
 runs retain at most 200 files for up to 30 days, pruned when the next run starts.
 Active/unfinished files are never automatically deleted. A 32 MiB safety threshold
 stops further work on an oversized transcript; viewer output is bounded separately.
@@ -344,7 +420,9 @@ archival counts; failed admission includes that configuration source too.
 `/memory-diagnostics` identifies the memory package's independent binary/config
 lookup. Old binary errors are grouped by workspace when legacy provenance is
 missing; new errors carry the exact package/override resource.
-`work/` stores private review proposals/application checkpoints. These can contain
+`work/` stores private review proposals/application checkpoints and full recovery
+cases/evidence. Keep state/work storage outside the knowledge bundle; the adapter
+refuses recursive/private-in-bundle work directories before any commit. These can contain
 sensitive rationale and source references; do not publish them. Directories are
 owner-only and files owner-readable. Deleting this state loses receipts and can
 cause repeat model work; session-search's paid caches live in its own database.

@@ -166,7 +166,7 @@ export default function maintenance(pi: ExtensionAPI) {
       } catch (e) { if (coordinator === runtimeAtEntry) commandCtx.ui.notify(safeText((e as Error).message), "error"); }
     },
   });
-  // Trusted host configuration (e.g. a future Yono adapter), not an LLM tool.
+  // Trusted host configuration, not an LLM tool. Hosts own their deployment defaults.
   pi.events.on("pi-session-maintenance:control:v1", (data) => {
     const r = data as { protocol: number; operation: string; settings?: unknown; seconds?: number; result?: Promise<unknown> };
     r.result = transition.then(async () => {

@@ -27,6 +27,12 @@ test("guidance distinguishes routine waiting from specific prerequisite repairs"
   const validation = nextSteps(group("memory-validation", { validation: { warnings: ["concept x missing parent index listing"] } }));
   assert.equal(validation.intervention, "needed"); assert.match(validation.actions.join(" "), /concept x missing/);
   assert.match(nextSteps(group("stale-context")).actions.join(" "), /\/reload alone does not reread/);
+  assert.equal(nextSteps(group("memory-repair-pending")).intervention, "none");
+  assert.equal(nextSteps(group("memory-repair-conflict")).intervention, "none");
+  const retrying = nextSteps(group("memory-validation", { repair: { automatic: true, status: "retryable", attempts: 1, reason: "Invalid proposal" } }));
+  assert.equal(retrying.intervention, "none"); assert.match(retrying.actions.join(" "), /bounded proposal allowance/);
+  const exhausted = nextSteps(group("memory-validation", { repair: { automatic: true, status: "blocked", attempts: 2, reason: "No evidenced repair" } }));
+  assert.equal(exhausted.intervention, "needed"); assert.match(exhausted.actions.join(" "), /No evidenced repair/);
 });
 test("status states retry history, action, automatic eligibility and safe immediate retry", () => {
   const s = status();

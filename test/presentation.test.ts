@@ -35,6 +35,24 @@ test("provider counts include cache tokens, reasoning is a subset, and duplicate
     assert.equal(readFileSync(f.log.file, "utf8"), before);
   } finally { f.close(); }
 });
+test("recovery replay contexts preserve requests/tool results without duplicating native assistant usage", () => {
+  const f = fixture();
+  try {
+    const first = { ...reply(usage), stopReason: "toolUse", content: [...reply(usage).content,
+      { type: "toolCall", id: "read-1", name: "read", arguments: { path: "evidence.md" } }] };
+    const result = { role: "toolResult", toolCallId: "read-1", toolName: "read", content: [{ type: "text", text: "Evidence from file" }], isError: false, timestamp: Date.now() };
+    f.log.model(start); f.log.model({ type: "end", message: first });
+    f.log.model({ type: "tool-result", message: result });
+    f.log.model({ ...start, replay: true, messages: [...start.messages, first, result] });
+    f.log.model({ type: "end", message: reply(usage, "Repair verified") }); f.log.finish("complete");
+    const entries = readFileSync(f.log.file, "utf8").trim().split("\n").map(line => JSON.parse(line));
+    assert.equal(entries.filter(e => e.type === "message" && e.message.role === "assistant").length, 2);
+    assert.equal(entries.filter(e => e.type === "message" && e.message.role === "toolResult").length, 1);
+    assert.ok(entries.some(e => e.customType === "maintenance.event" && e.data.type === "model-context"));
+    assert.equal(f.rows().filter(r => r.label === "💵 Cost · recorded").length, 2);
+  } finally { f.close(); }
+});
+
 test("all-zero provider usage is unavailable, disabled content is not estimated as zero, and zero cost is not called free", () => {
   const f = fixture(false);
   try {
@@ -50,10 +68,14 @@ test("JSON reviews/results become readable rows with source references and valid
   try {
     f.log.model(start); f.log.model({ type: "end", message: reply(usage, JSON.stringify({ reviewed: true, changes: [
       { concept: "decisions/cache", title: "Cache reuse", description: "Avoid repeated work", body: "Preserve checkpoints.", entries: [1, 5] } ] })) });
+    f.log.event("validation", { ok: false, validation: { warnings: ["Missing parent index listing"] } });
+    f.log.event("repair", { files: [{ file: "index.md", reason: "Restore authoritative navigation" }] });
     f.log.event("validation", { ok: true, advisories: [{ message: "Independent topic" }] });
     f.log.event("commit", { commit: "abc123" }); f.log.event("outcome", { complete: true, detail: { done: 1, sections: 3, commit: "abc123" } }); f.log.finish("checkpoint");
     const rows = f.rows(); const text = rows.map(r => `${r.label ?? ""} ${r.text}`).join("\n");
     assert.match(text, /Validation passed|Cache reuse/); assert.match(text, /Source entries #1, #5/);
+    assert.match(text, /Missing parent index listing/); assert.match(text, /Automatic structural repair/);
+    assert.match(text, /Restore authoritative navigation/);
     assert.match(text, /Done 1|Sections 3/); assert.doesNotMatch(text, /\{"reviewed"/);
     assert.ok(rows.some(r => r.tone === "success")); assert.ok(rows.some(r => r.heading));
     assert.match(text, /not proof of application/);

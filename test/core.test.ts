@@ -16,6 +16,20 @@ test("settings reject unsafe values and compaction is opt-in", () => {
   }
 });
 
+test("memory authority defaults to limited regardless of host metadata; generic overrides and identity are validated", () => {
+  const env = { ...process.env };
+  try {
+    delete process.env.PI_MEMORY_OWNERSHIP;
+    process.env.HOST_WORKSPACE_PATH = "/workspace"; process.env.SANDBOX_NAME = "worker";
+    assert.equal(parseConfig({}, "/workspace").memoryOwnership, "limited");
+    process.env.PI_MEMORY_OWNERSHIP = "full";
+    assert.equal(parseConfig({}, "/workspace").memoryOwnership, "full");
+    assert.equal(parseConfig({ memoryOwnership: "limited" }, "/workspace").memoryOwnership, "limited");
+    assert.equal(parseConfig({ memoryOwnership: "full" }, "/workspace").memoryOwnership, "full");
+    for (const raw of [{ memoryOwnership: true }, { memoryOwnership: "automatic" }, { memoryGitIdentity: { name: "Agent", email: "" } }, { memoryGitIdentity: { name: "x\ny", email: "a@b" } }]) assert.throws(() => parseConfig(raw, "/workspace"));
+  } finally { process.env = env; }
+});
+
 test("snapshots include every branch and ignore compaction/metadata changes", () => {
   const dir = mkdtempSync(join(tmpdir(), "maintenance-source-"));
   try {

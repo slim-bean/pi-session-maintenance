@@ -3,7 +3,7 @@
 Read README.md. Capability-driven maintenance, not a browser or knowledge implementation.
 
 - Never launch an authenticated pi or read auth.json in tests. All model tests use fake registries.
-- Loading the package authorizes configured autonomous maintenance; defaults apply only while pi is open.
+- Loading the package authorizes configured autonomous maintenance; defaults apply only while pi is open. memoryOwnership limited/full is standing policy: explicit config > PI_MEMORY_OWNERSHIP > limited everywhere. Keep platform-specific defaults/detection in host adapters, never these extensions. Capture environment-default provenance at load; do not infer authenticated identity or an OS boundary. Full requires ownershipProtocol:1; never silently use a limited adapter.
 - Source conversations are read-only except native compaction of the current owned session.
 - All branches belong in knowledge/search inputs. Do not treat off-branch as rejected.
 - SQLite holds queue, receipts, controls, spend and advisory ownership. Never steal live/foreign owners based on age.
@@ -16,17 +16,17 @@ Read README.md. Capability-driven maintenance, not a browser or knowledge implem
   600s). Pass modelTimeoutMs to adapters, preserve the first abort signal's reason,
   and show elapsed/deadline/provider errors in history and session views. Never infer
   timeout from an old generic aborted record or mutate the provider's native message.
-- Keep corpus operations inside the OKF adapter, including validation, automatic commits and configured non-force pushes.
+- Keep corpus operations inside the OKF adapter, including configured limited/full recovery, commits and non-force pushes. Full failures continue automatically within budget/turn gates; unknown facts/governance are investigation/qualification work, not human approval. Only unavailable host resources or authority beyond memory scope are external prerequisites. Pass memoryGitIdentity only as explicit authorization, never invent it. Full shell has process permissions and does not inherit foreground tool overrides; logs are private/cooperative, not infrastructure audit. Never manufacture success.
 - `store.ts` archives resolved blockers to issue_history only with fresh adapter evidence.
   Preserve original counters/messages/unknown timestamps; compare against the current
   issue before clearing it. Never manufacture review/summary completion receipts.
 - Track actual configuration origin separately from Config; don't infer loaded settings
   from file existence after startup. Report file/default/host origins in status/errors.
-- `issues.ts` classifies deferred/blocked/error outcomes and deduplicates by resource/code. Legacy validation parsing is narrow; do not erase receipts or label work complete on policy changes. Re-admit only proven orphan-only saved plans when the adapter reports advisory policy.
+- `issues.ts` classifies deferred/blocked/error outcomes and deduplicates by resource/code. Legacy validation parsing is narrow; do not erase receipts or label work complete on policy changes. Re-admit proven orphan-only saved plans when the adapter reports advisory policy; newly advertised repairPolicy:1 re-admits legacy memory-validation plans without erasing history or bypassing safety. Already-attempted automatic repairs keep their backoff.
 - `guidance.ts` gives code-specific next actions; show retry history and gates without implying retries can repair static prerequisites. Never invent a root cause or prior attempt timestamps.
 - `format.ts` keeps slash-command output human-readable and bounded; host control status stays structured. Manual retry clears delay only, preserves history, and requests a check without aborting foreground work.
 - `footer.ts` produces `🧹` blocks, active-only animation and a `/maintenance watch` hint. Animation uses cached footer state, never per-frame SQLite/source reads; stop its timer on completion/shutdown. Derive ownership on scheduler polls.
-- `runs.ts` owns private native SessionManager transcripts outside normal discovery. Never append background prompts/output to the source session. Preserve failed/cancelled output, distinguish unfinished from completed, respect modelTranscripts opt-out, and never record credential/transport options.
+- `runs.ts` owns private native SessionManager transcripts outside normal discovery. Recovery replay contexts use model-context events, not duplicated native assistant messages/usage; tool-result events preserve executed tools. Respect modelTranscripts:false in durable worker cases too, while retaining operational/private corpus checkpoints. Never append background prompts/output to the source session. Preserve failed/cancelled output, distinguish unfinished from completed, respect modelTranscripts opt-out, and never record credential/transport options.
 - `presentation.ts` projects immutable rows from native JSONL. Apply bold/theme/ANSI
   only at render time; retain raw JSON as an escape hatch. Separate model proposals
   from validation/commit evidence. Report exact provider usage vs labeled visible

@@ -61,6 +61,8 @@ export async function editSettings(ctx: ExtensionContext, current: Config, asser
       { key: "idleSeconds", label: `Idle delay: ${timeSpan(draft.idleSeconds)}` },
       { key: "modelTimeoutSeconds", label: `Model call / compaction timeout: ${timeSpan(draft.modelTimeoutSeconds)}` },
       { key: "knowledge", label: `Knowledge review: ${enabled(draft.knowledge)}` },
+      { key: "memoryOwnership", label: `Memory ownership: ${draft.memoryOwnership === "full" ? "full — autonomous recovery, no human approval" : "limited — structural repair only"}` },
+      { key: "memoryGitIdentity", label: `Memory Git identity: ${draft.memoryGitIdentity ? `${draft.memoryGitIdentity.name} <${draft.memoryGitIdentity.email}>` : "existing Git configuration"}` },
       { key: "upgrades", label: `OKF upgrades: ${enabled(draft.upgrades)}` },
       { key: "summaries", label: `Search summaries: ${enabled(draft.summaries)}` },
       { key: "reviewModel", label: `Review model: ${draft.reviewModel ?? "automatic (pinned per session)"}` },
@@ -93,6 +95,19 @@ export async function editSettings(ctx: ExtensionContext, current: Config, asser
           if (!approved) continue;
         }
         next[flag] = !next[flag];
+      } else if (key === "memoryOwnership") {
+        const choice = await ctx.ui.select("Memory ownership (full enables a shell-capable recovery worker with this process's permissions)", ["limited", "full"]);
+        assertCurrent(); if (choice === undefined) continue;
+        next.memoryOwnership = choice as Config["memoryOwnership"];
+      } else if (key === "memoryGitIdentity") {
+        const name = await ctx.ui.input("Authorized Git author name (blank uses existing Git configuration)", draft.memoryGitIdentity?.name ?? "");
+        assertCurrent(); if (name === undefined) continue;
+        if (!name.trim()) next.memoryGitIdentity = undefined;
+        else {
+          const email = await ctx.ui.input("Authorized Git author email", draft.memoryGitIdentity?.email ?? "");
+          assertCurrent(); if (email === undefined) continue;
+          next.memoryGitIdentity = { name: name.trim(), email: email.trim() };
+        }
       } else if (key === "compaction") next.compaction.enabled = !next.compaction.enabled;
       else if (key === "reviewModel" || key === "summaryModel") {
         const choice = await chooseModel(ctx, key === "reviewModel" ? "Knowledge review model" : "Session summary model", assertCurrent);

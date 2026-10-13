@@ -8,11 +8,13 @@ import { tmpdir } from "node:os";
 import { Coordinator } from "../src/coordinator.ts";
 import { Store } from "../src/store.ts";
 import { parseConfig } from "../src/config.ts";
-import { registerMemoryMaintenance } from "../../pi-okf-agent-memory/lib/maintenance.ts";
+// @ts-expect-error The sibling's JavaScript test loader supplies pi's runtime aliases.
+const { jiti } = await import("../../pi-okf-agent-memory/test/loader.mjs");
+const { registerMemoryMaintenance } = await jiti.import(resolve(import.meta.dirname, "../../pi-okf-agent-memory/lib/maintenance.ts")) as typeof import("../../pi-okf-agent-memory/lib/maintenance.ts");
 import { registerSummaryMaintenance } from "../../pi-session-search/extension/maintenance.ts";
 import { SessionIndex } from "../../pi-session-search/extension/indexer.ts";
 
-test("real package adapters compose with the coordinator using only a fake provider and temporary data", async () => {
+for (const memoryOwnership of ["limited", "full"] as const) test(`real package adapters compose with the coordinator (${memoryOwnership} ownership) using only a fake provider`, async () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "maintenance-integration-")));
   const env = { ...process.env };
   process.env.PI_CODING_AGENT_DIR = dir; delete process.env.OKF_KNOWLEDGE_DIR;
@@ -23,6 +25,11 @@ test("real package adapters compose with the coordinator using only a fake provi
   for (const args of [["init", "--quiet"], ["config", "user.name", "Offline Integration"], ["config", "user.email", "offline@example.invalid"], ["config", "commit.gpgsign", "false"]]) {
     execFileSync("git", ["-C", bundle, ...args]);
   }
+  // Existing validation failures must repair automatically, even before the
+  // first upgrade: no /maintenance retry, foreground delegation or live model.
+  execFileSync(binary, ["create", "target", bundle, "--title", "Target", "--desc", "Target rationale.", "--body", "Existing evidence."]);
+  execFileSync(binary, ["create", "source", bundle, "--title", "Source", "--desc", "Uses the target.", "--body", "See [target](wrong.md) for the rationale."]);
+  writeFileSync(join(bundle, "index.md"), "# Knowledge\n");
   const path = join(dir, "sessions", "fixture", "s.jsonl"); mkdirSync(join(dir, "sessions", "fixture"), { recursive: true });
   const entries: any[] = [
     { type: "message", id: "a", parentId: null, message: { role: "user", content: "a question" } },
@@ -42,10 +49,16 @@ test("real package adapters compose with the coordinator using only a fake provi
     modelRegistry: { find: () => model, hasConfiguredAuth: () => true, streamSimple(_m: any, input: any) {
       calls++;
       const isSummary = input.systemPrompt.startsWith("Create a search-oriented");
+      const isRepair = input.systemPrompt.includes('"repairs"');
       if (isSummary || input.systemPrompt.includes("Extract only durable WHY")) assert.match(input.messages[0].content, /valuable branch evidence/);
-      return { result: async () => ({ stopReason: "stop", content: [{ type: "text", text: JSON.stringify(isSummary
-        ? { overview: "all branches", topics: [{ title: "Sidequest", summary: "valuable", keywords: [], entries: [3] }] }
-        : { reviewed: true, changes: [] }) }], usage: { cost: { total: 0.01 } } }) };
+      const fullRepair = input.tools?.length && !input.messages.some((m: any) => m.role === "toolResult" && m.toolCallId === "full-repair");
+      return { result: async () => ({ role: "assistant", api: "openai-responses", provider: "fake", model: "offline", timestamp: Date.now(),
+        stopReason: fullRepair ? "toolUse" : "stop", content: fullRepair
+          ? [{ type: "toolCall", id: "full-repair", name: "edit", arguments: { path: "source.md", edits: [{ oldText: "[target](wrong.md)", newText: "[target](target.md)" }] } }]
+          : [{ type: "text", text: JSON.stringify(isSummary
+            ? { overview: "all branches", topics: [{ title: "Sidequest", summary: "valuable", keywords: [], entries: [3] }] }
+            : isRepair ? { repairs: [{ file: "source.md", from: "[target](wrong.md)", target: "target.md", reason: "The existing target is named in the source rationale." }] }
+            : { reviewed: true, changes: [] }) }], usage: { cost: { total: 0.01 } } }) };
     } },
   };
   const memory = registerMemoryMaintenance(pi, { packageVersion: "0.2.0", skillsDir: resolve(import.meta.dirname, "../../pi-okf-agent-memory/skills"), getBinary: () => binary, busy: () => false });
@@ -53,7 +66,7 @@ test("real package adapters compose with the coordinator using only a fake provi
   const summary = registerSummaryMaintenance(pi, () => index);
   bus.on("pi-session-maintenance:capabilities:v1", (r: any) => { r.capabilities.summary = { protocol: 1, channel: "pi-session-search:maintenance:v1" }; });
   let clock = 1000;
-  const config = parseConfig({ stateDir: join(dir, "state"), idleSeconds: 1 }, dir);
+  const config = parseConfig({ stateDir: join(dir, "state"), idleSeconds: 1, memoryOwnership }, dir);
   const store = new Store(config.stateDir, () => clock);
   const coordinator = new Coordinator(pi.events, store, config, () => clock);
   try {
@@ -61,9 +74,20 @@ test("real package adapters compose with the coordinator using only a fake provi
     for (let i = 0; i < 6; i++) await coordinator.tick();
     const record = store.get(path)!;
     assert.ok(record.review); assert.ok(record.summary);
-    assert.equal(calls, 3); // one upgrade, one review, one summary; never a live provider
+    const expected = memoryOwnership === "full" ? 5 : 4; // full repair uses a tool turn + host-verified completion
+    assert.equal(calls, expected);
+    assert.match((await import("node:fs")).readFileSync(join(bundle, "source.md"), "utf8"), /\[target\]\(target.md\)/);
     assert.equal(execFileSync("git", ["-C", bundle, "status", "--porcelain"], { encoding: "utf8" }), "");
-    await coordinator.tick(); assert.equal(calls, 3);
+    await coordinator.tick(); assert.equal(calls, expected);
+    if (memoryOwnership === "full") {
+      // An independently broken corpus must heal even when source coverage is
+      // already fresh; corpus fingerprints re-admit validation without re-extraction.
+      execFileSync(binary, ["update", "source", bundle, "--body", "See [target](wrong.md) for the rationale."]);
+      clock += 2000; await coordinator.tick(); await coordinator.tick();
+      assert.equal(calls, expected + 2);
+      assert.match((await import("node:fs")).readFileSync(join(bundle, "source.md"), "utf8"), /\[target\]\(target.md\)/);
+      assert.ok(store.get(path)!.review); assert.equal(execFileSync("git", ["-C", bundle, "status", "--porcelain"], { encoding: "utf8" }), "");
+    }
     const fs = await import("node:fs"); assert.equal(fs.readFileSync(path, "utf8"), source);
   } finally {
     await coordinator.close(); await memory.stop(); await summary.stop(); await index.dispose();

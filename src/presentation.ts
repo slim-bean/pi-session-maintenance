@@ -44,6 +44,11 @@ function calls(entries: any[]): Call[] {
   for (const e of entries) {
     const d = object(e.data);
     if (e.type === "custom" && e.customType === "maintenance.event" && d.type === "model") begin(object(d.detail));
+    else if (e.type === "custom" && e.customType === "maintenance.event" && d.type === "model-context") {
+      const c = current ?? begin(); const context = object(d.detail);
+      c.inputs.push(context.systemPrompt ?? "", ...(context.messages ?? []).map((m: any) => m.content));
+      c.systems.push(context.systemPrompt ?? "");
+    }
     else if (e.type === "message") {
       const m = object(e.message);
       if (m.role === "system") { if (!current || current.output || current.inputs.length) begin(); current!.inputs.push(m.content); current!.systems.push(m.content); }
@@ -156,10 +161,11 @@ export function runRows(run: RunInfo, options: { prompts?: boolean; thinking?: b
   for (const e of entries) if (e.type === "custom" && e.customType === "maintenance.event") {
     const { type, detail: d } = object(e.data);
     if (type === "outcome") rows.push({ heading: true, text: `📋 Result${d?.complete === true ? " · completed" : " · checkpoint/pending"}` }, ...details(d?.detail ?? d));
-    else if (type === "validation") rows.push({ heading: true, text: d?.ok === true ? "✓ Validation passed" : "⚠ Validation not confirmed", tone: d?.ok === true ? "success" : "warning" }, ...details(d?.advisories));
+    else if (type === "validation") rows.push({ heading: true, text: d?.ok === true ? "✓ Validation passed" : "⚠ Validation requires repair", tone: d?.ok === true ? "success" : "warning" }, ...details(d?.ok === true ? d?.advisories : d?.validation ?? d));
+    else if (type === "repair") rows.push({ heading: true, text: "🔧 Automatic structural repair" }, ...details(d?.files ?? d));
     else if (type === "commit") rows.push({ label: "🔗 Commit", text: d?.commit ?? "No new commit", tone: d?.commit ? "success" : "muted" });
     else if (type === "error" || type === "cancelled") rows.push({ heading: true, text: type === "error" ? "✗ Error / blocker" : "■ Cancelled", tone: type === "error" ? "error" : "warning" }, ...details(d));
-    else if (!["model", "usage", "model-end", "model-progress"].includes(type)) rows.push({ heading: true, text: `◇ ${name(String(type))}` }, ...details(d));
+    else if (!["model", "model-context", "usage", "model-end", "model-progress"].includes(type)) rows.push({ heading: true, text: `◇ ${name(String(type))}` }, ...details(d));
   }
   const end = entries.filter(e => e.type === "custom" && e.customType === "maintenance.end").at(-1)?.data;
   if (end?.error) rows.push({ label: "Reason", text: end.error, tone: end.status === "cancelled" ? "warning" : "error" });

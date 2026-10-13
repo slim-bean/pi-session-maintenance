@@ -92,6 +92,7 @@ export function formatStatus(status: Status, caps: Capabilities, now = Date.now(
   const lines = [
     `Session maintenance · ${mode}`, `State: ${state}`, `Owner: ${owner}`,
     `Stages: ${stages.join(" · ")}`,
+    `Memory ownership: ${cfg.memoryOwnership === "full" ? "full — agent-owned recovery; no human approval" : "limited — structural repair"}`,
     `Schedule: after ${timeSpan(cfg.idleSeconds)} idle · check every ${timeSpan(cfg.pollSeconds)}`,
     `Model call / compaction timeout: ${timeSpan(cfg.modelTimeoutSeconds)}`,
     `Budget: ${money(status.spentToday)} / ${money(cfg.dailyBudget)} today · ${money(cfg.maxCostPerCycle)} per opportunity (approx.)`,
@@ -164,6 +165,8 @@ export function formatSettings(cfg: Config, cwd: string): string {
     "Maintenance settings", `File: ${prettyPath(cwd + "/.pi/maintenance.json")}`,
     `Enabled: ${onOff(cfg.enabled)} · Idle delay: ${timeSpan(cfg.idleSeconds)} · Poll interval: ${timeSpan(cfg.pollSeconds)}`,
     `OKF upgrades: ${onOff(cfg.upgrades)} · Knowledge review: ${onOff(cfg.knowledge)} · Search summaries: ${onOff(cfg.summaries)}`,
+    `Memory ownership: ${cfg.memoryOwnership === "full" ? "full — autonomous tool-capable recovery" : "limited — structural repair only"}`,
+    `Memory Git identity: ${cfg.memoryGitIdentity ? clean(`${cfg.memoryGitIdentity.name} <${cfg.memoryGitIdentity.email}>`) : "existing Git configuration (no invented identity)"}`,
     `Review model: ${cfg.reviewModel ? clean(cfg.reviewModel) : "automatic (pinned per session)"}`,
     `Summary model: ${cfg.summaryModel ? clean(cfg.summaryModel) : "automatic (pinned per session)"}`,
     `Model budget: ${money(cfg.maxCostPerCycle)} per opportunity · ${money(cfg.dailyBudget)} per UTC day (approx.)`,

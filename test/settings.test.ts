@@ -27,7 +27,7 @@ test("interactive settings edit a draft and save validated workspace values atom
   const dir = mkdtempSync(join(tmpdir(), "maintenance-settings-"));
   try {
     const cfg = parseConfig({}, dir);
-    const h = ui(dir, ["Idle delay:", "Model call / compaction timeout:", "Review model:", "local/worker", "Maintenance compaction:", "Between-turn context budget:", "Daily model budget:", "Save & apply"], ["30m", "20m", "200k", "$2.50"]);
+    const h = ui(dir, ["Idle delay:", "Model call / compaction timeout:", "Review model:", "local/worker", "Maintenance compaction:", "Between-turn context budget:", "Daily model budget:", "Memory ownership:", "full", "Memory Git identity:", "Save & apply"], ["30m", "20m", "200k", "$2.50", "Authorized Agent", "agent@example.invalid"]);
     const result = await editSettings(h.ctx, cfg, () => {});
     assert.ok(result); assert.equal(result.idleSeconds, 1800); assert.equal(result.reviewModel, "local/worker");
     assert.equal(result.modelTimeoutSeconds, 1200);
@@ -38,6 +38,8 @@ test("interactive settings edit a draft and save validated workspace values atom
     assert.equal(persisted.idleSeconds, 1800); assert.equal(persisted.reviewModel, "local/worker");
     assert.equal(cfg.idleSeconds, 600); assert.equal(cfg.compaction.enabled, false); assert.equal(cfg.modelTimeoutSeconds, 600);
     assert.equal(persisted.modelTimeoutSeconds, 1200);
+    assert.equal(persisted.memoryOwnership, "full"); assert.deepEqual(persisted.memoryGitIdentity, { name: "Authorized Agent", email: "agent@example.invalid" });
+    assert.equal(cfg.memoryOwnership, "limited"); assert.equal(cfg.memoryGitIdentity, undefined);
     for (const value of [0, -1, 3601, 1.5, "600"]) assert.throws(() => parseConfig({ modelTimeoutSeconds: value }, dir), /modelTimeoutSeconds/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

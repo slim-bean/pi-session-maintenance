@@ -8,9 +8,10 @@ export interface RunMeta {
 export interface RunInfo extends RunMeta { id: string; file: string; ended?: number; status: string; progress?: string; lastEvent?: number; revision?: string }
 /** Optional, versioned adapter callback. No provider credentials/options are accepted. */
 export type ModelEvent =
-  | { type: "start"; provider: string; model: string; systemPrompt: string; messages: any[]; reasoning?: string; maxTokens?: number; timeoutMs?: number }
+  | { type: "start"; provider: string; model: string; systemPrompt: string; messages: any[]; tools?: unknown[]; replay?: boolean; reasoning?: string; maxTokens?: number; timeoutMs?: number }
   | { type: "delta"; channel: "text" | "thinking"; delta: string }
-  | { type: "end"; message: any; abortReason?: string; elapsedMs?: number; timeoutMs?: number };
+  | { type: "end"; message: any; abortReason?: string; elapsedMs?: number; timeoutMs?: number }
+  | { type: "tool-result"; message: any };
 const MAX_FILE = 32 * 1024 * 1024;
 const MAX_VIEW = 2 * 1024 * 1024;
 const MAX_RUNS = 200;
@@ -175,12 +176,20 @@ export class RunLog {
       else this.pending.push({ channel: event.channel, delta: event.delta });
       this.pendingChars += event.delta.length;
       if (this.now() - this.lastFlush >= 250 || this.pendingChars >= 8192) this.flush();
+    } else if (event.type === "tool-result") {
+      this.flush(); this.manager.appendMessage(event.message);
     } else if (event.type === "start") {
       this.flush();
       this.event("model", { provider: event.provider, model: event.model, reasoning: event.reasoning, maxTokens: event.maxTokens, timeoutMs: event.timeoutMs });
       this.manager.appendModelChange(event.provider, event.model);
-      this.manager.appendMessage({ role: "system", content: event.systemPrompt, timestamp: this.now() });
-      for (const message of event.messages) this.manager.appendMessage(message);
+      if (event.replay) {
+        // Exact recovery request context is recorded as data, not replayed native
+        // assistant messages (which would double-count their usage/tool calls).
+        this.event("model-context", { systemPrompt: event.systemPrompt, messages: event.messages, tools: event.tools });
+      } else {
+        this.manager.appendMessage({ role: "system", content: event.systemPrompt, timestamp: this.now(), toolsAdded: event.tools as any });
+        for (const message of event.messages) this.manager.appendMessage(message);
+      }
     } else {
       this.flush(); this.manager.appendMessage(event.message);
       this.event("model-end", { stopReason: event.message.stopReason, errorMessage: event.message.errorMessage,

@@ -30,9 +30,12 @@ async function fixture(options: any = {}) {
       return;
     }
     if (r.operation === "status") {
-      r.result = Promise.resolve(channel === "memory" ? { available: true, upgraded, key: "memory:1", orphanPolicy: options.orphanPolicy } : { key: "summary:1", complete: false }); return;
+      r.result = Promise.resolve(channel === "memory" ? { available: true, upgraded, key: "memory:1", orphanPolicy: options.orphanPolicy, repairPolicy: options.repairPolicy, ownershipProtocol: options.ownershipProtocol } : { key: "summary:1", complete: false }); return;
     }
     calls.push(r.operation);
+    assert.equal(r.memoryOwnership, options.config?.memoryOwnership ?? "limited");
+    assert.deepEqual(r.memoryGitIdentity, options.config?.memoryGitIdentity);
+    assert.equal(r.modelTranscripts, options.config?.modelTranscripts ?? true);
     assert.equal(r.modelTimeoutMs, (options.config?.modelTimeoutSeconds ?? 600) * 1000);
     r.assertSource();
     r.result = Promise.resolve().then(() => {
@@ -90,6 +93,47 @@ test("policy changes re-admit orphan-only saved plans, while strict mode keeps t
       else { assert.deepEqual(f.calls, []); assert.equal(f.store.get(f.path)!.review, undefined); assert.equal(f.footers.at(-1), "🧹 block 1 → status"); }
     } finally { await f.close(); }
   }
+});
+
+test("new repair authority re-admits legacy validation plans without receipts or erasing attempt history", async () => {
+  for (const [repairPolicy, alreadyAutomatic] of [[undefined, false], [1, false], [1, true]] as const) {
+    const f = await fixture({ upgraded: true, summary: false, repairPolicy, fail: "review",
+      issue: { maintenanceIssue: 1, kind: "blocked", code: "memory-validation", detail: { repair: { automatic: true, status: "blocked" } } },
+      config: { compaction: { enabled: false } } });
+    try {
+      const record = f.store.get(f.path)!;
+      record.errors = { review: { kind: "blocked", code: "memory-validation", resource: join(f.dir, "knowledge"),
+        failures: 27, attempts: 27, retryAt: f.c.now() + 3600_000, error: "Validation failed; saved plan retained",
+        detail: alreadyAutomatic ? { repair: { automatic: true, status: "blocked" } } : undefined } };
+      f.store.put(record); f.advance(); await f.c.tick();
+      assert.equal(f.store.get(f.path)!.review, undefined);
+      assert.deepEqual(f.calls, repairPolicy === 1 && !alreadyAutomatic ? ["review"] : []);
+      assert.equal(f.store.get(f.path)!.errors!.review!.failures, repairPolicy === 1 && !alreadyAutomatic ? 28 : 27);
+    } finally { await f.close(); }
+  }
+});
+
+test("full ownership requires an advertised compatible adapter; no silent limited fallback", async () => {
+  for (const ownershipProtocol of [undefined, 1]) {
+    const f = await fixture({ upgraded: true, summary: false, ownershipProtocol,
+      config: { memoryOwnership: "full", memoryGitIdentity: { name: "Authorized Agent", email: "agent@example.invalid" }, compaction: { enabled: false } } });
+    try {
+      f.advance(); await f.c.tick();
+      if (ownershipProtocol === 1) assert.deepEqual(f.calls, ["review"]);
+      else { assert.deepEqual(f.calls, []); assert.equal(f.store.get(f.path)!.errors!.upgrade!.code, "memory-ownership-adapter"); }
+    } finally { await f.close(); }
+  }
+});
+
+test("full ownership re-admits prior limited automatic-repair blockers without discarding their counters", async () => {
+  const f = await fixture({ upgraded: true, summary: false, repairPolicy: 1, ownershipProtocol: 1,
+    config: { memoryOwnership: "full", compaction: { enabled: false } } });
+  try {
+    const record = f.store.get(f.path)!;
+    record.errors = { review: { failures: 9, attempts: 9, retryAt: f.c.now() + 3600_000, error: "Structural repair cannot change governance", code: "memory-validation", kind: "blocked",
+      detail: { repair: { automatic: true, status: "blocked" } } } };
+    f.store.put(record); f.advance(); await f.c.tick(); assert.deepEqual(f.calls, ["review"]); assert.ok(f.store.get(f.path)!.review);
+  } finally { await f.close(); }
 });
 
 test("missing optional packages skip their stages; archives never compact", async () => {

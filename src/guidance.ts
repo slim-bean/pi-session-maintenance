@@ -8,6 +8,14 @@ export function nextSteps(g: IssueGroup): Guidance {
     case "orphan-policy-legacy": return needed("Reload the affected pi windows to load the updated OKF adapter. Independent topics need no fabricated relationships; advisory policy is the default. Saved plans will then revalidate and finalize normally.");
     case "validation-policy-changed": return wait("No corpus repair is needed for isolation alone. The saved plan is queued for real validation and Git finalization under the updated policy.");
     case "memory-busy": case "bundle-lock": return wait("Wait for the current memory writer/setup/upgrade to finish. Do not delete a live owner's lock. If ownership is genuinely stale, verify the old runtime stopped before using the documented recovery flow.");
+    case "memory-ownership-adapter": return needed("Deploy an updated pi-okf-agent-memory adapter with ownershipProtocol:1 and reload. Full ownership never silently falls back to a limited adapter.");
+    case "memory-recovery-transient": return wait("The recovery worker/provider failed transiently. Its case and checkpoints are retained; automatic retry uses exponential backoff. No human repair approval or foreground handoff is needed.");
+    case "memory-recovery-pending": return wait("The full-ownership agent is investigating/repairing this failure. Durable recovery evidence and checkpoints are retained; it continues automatically at the next safe idle/budget opportunity. No human approval or repair handoff is expected.");
+    case "memory-upgrade-pending": return wait("The coordinator finishes installed memory contracts before review. Keep the upgrades stage enabled; a host may also request the prerequisite upgrade directly. No human review approval is required in full mode.");
+    case "memory-context-capacity": return wait("Recovery will use incremental tool reads rather than truncating evidence. If the selected model cannot support the bounded recovery request, provision a model with sufficient context capacity.");
+    case "memory-external": return needed("Autonomous recovery reports an external prerequisite. Provision the specifically missing permission, credential, compatible runtime or unavailable resource through the host; no console answer is awaited. Inspect the recovery case for its evidence. Memory facts/policy ambiguity should be handled by qualification or archival, not human approval.");
+    case "memory-repair-pending": return wait("The agent queued validation repair for the next safe idle opportunity. The saved extraction plan is retained; no repeated extraction or human approval is needed.");
+    case "memory-repair-conflict": return wait("A foreground writer changed the corpus after repair planning. The stale repair checkpoint is preserved; maintenance will replan against the new content without overwriting it.");
     case "source-changed": return wait("Let the conversation finish changing. Maintenance will take a fresh snapshot; completed work is retained.");
     case "tool-pairing": return wait("Wait for outstanding tools to return. If the turn has already ended, inspect and repair the orphaned tool-call/result pairing before compacting; do not hide missing results.");
     case "stale-context": return needed("Stop any second writer, then reopen this saved session with /resume so in-memory history matches the file. /reload alone does not reread edited JSONL.");
@@ -21,9 +29,11 @@ export function nextSteps(g: IssueGroup): Guidance {
     case "git-signing": return needed("Fix Git signing/key availability so commits work unattended, or explicitly choose an approved repository signing policy. Maintenance never bypasses signing or hooks.");
     case "git-push-rejected": return needed("Inspect the upstream rejection; reconcile divergent history or satisfy the remote hook/branch policy. No automatic force push or rebase is performed.");
     case "memory-validation": {
-      const d = g.detail as { validation?: Record<string, any>; orphanPolicy?: string } | undefined;
+      const d = g.detail as { validation?: Record<string, any>; orphanPolicy?: string; repair?: { automatic?: boolean; status?: string; attempts?: number; reason?: string } } | undefined;
       const v = d?.validation;
-      const actions = ["Run memory_validate for the knowledge bundle named above; make justified repairs to these reported findings, then validate again. No general corpus-repair workflow is launched solely because the status is blocked."];
+      const actions = [d?.repair?.automatic
+        ? `Automatic index/link repair ${d.repair.status === "retryable" ? "will retry within its bounded proposal allowance" : "could not safely clear the remaining findings"}. ${d.repair.reason ?? "Inspect the recorded repair evidence."} Saved extraction plans remain pending.`
+        : "The current OKF maintenance adapter automatically repairs index bookkeeping and evidenced broken link targets. Reload older adapters to enable it. Inspect memory_validate for findings that need factual/governance/policy evidence rather than structural repair."];
       if (v) {
         for (const [key, label] of [["errors", "Schema/provenance/governance"], ["warnings", "Index/drift/staleness warnings"], ["gate_findings", "Gate findings"], ["broken_links", "Broken links"]]) {
           if (!Array.isArray(v[key]) || !v[key].length) continue;
@@ -33,7 +43,7 @@ export function nextSteps(g: IssueGroup): Guidance {
         if (v.stale_count > 0) actions.push(`Review ${v.stale_count} stale record(s) against actual facts; do not advance dates without reviewing them.`);
         if (d?.orphanPolicy === "strict" && v.orphans?.length) actions.push("Strict orphan policy is selected. If these topics are intentionally independent, configure OKF_ORPHAN_POLICY=advisory and reload; otherwise add only genuine, evidenced relationships.");
       }
-      return needed(...actions);
+      return d?.repair?.status === "retryable" ? wait(...actions) : needed(...actions);
     }
   }
   if (g.kind === "deferred") return wait("Wait for the reported prerequisite to clear. No work is marked complete or discarded while waiting.");
