@@ -28,6 +28,12 @@ Optional dependencies are separate packages, not bundled or auto-installed:
 - Updated **pi-session-search** (not pi-search): summary adapter and existing cache.
 - Native pi compaction needs no extra package.
 
+**Release 0.5.0** adds opt-in daily session rotation, limited/full memory ownership
+with autonomous recovery coordination, and a `maxRetries` limit (default 10) that
+parks repeatedly failing jobs instead of retrying them forever. Pair with
+pi-okf-agent-memory 0.6.0, which splits review sections that hit output limits or
+call deadlines, and pi-session-search 0.7.0.
+
 **Release 0.4.0** adds configurable model-call/compaction deadlines (ten minutes
 by default) and explicit abort causes, elapsed times and provider errors in run
 history/session views. Pair with pi-session-search 0.7.0 and pi-okf-agent-memory
