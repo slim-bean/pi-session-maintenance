@@ -217,6 +217,44 @@ test("routine typed deferrals wait without incrementing error counts", async () 
   } finally { await f.close(); }
 });
 
+test("repeated failures park at maxRetries; settings changes, manual retry or new content re-admit one attempt", async () => {
+  const f = await fixture({ upgraded: true, summary: false, fail: "review", config: { maxRetries: 2, compaction: { enabled: false } } });
+  const reviews = () => f.calls.filter(c => c === "review").length;
+  try {
+    for (let i = 0; i < 8; i++) { f.advance(3600_000); await f.c.tick(); }
+    let issue = f.store.get(f.path)!.errors!.review!;
+    assert.equal(reviews(), 3); assert.equal(issue.failures, 3); assert.ok(issue.parked); // first try + 2 retries
+    // Raising the limit or changing a stage setting re-admits exactly one attempt.
+    await f.c.configure(parseConfig({ idleSeconds: 1, stateDir: join(f.dir, "state"), maxRetries: 2, modelTimeoutSeconds: 900, compaction: { enabled: false } }, f.dir));
+    assert.equal(f.c.config.modelTimeoutSeconds, 900);
+    for (let i = 0; i < 4; i++) { f.advance(3600_000); await f.c.tick(); }
+    assert.equal(reviews(), 4);
+    // Manual retry grants one more attempt without erasing history.
+    assert.match(await f.c.runNow(), /Started review/); await new Promise(r => setTimeout(r, 5));
+    issue = f.store.get(f.path)!.errors!.review!;
+    assert.equal(reviews(), 5); assert.equal(issue.attempts, 5); assert.ok(issue.parked);
+    for (let i = 0; i < 4; i++) { f.advance(3600_000); await f.c.tick(); }
+    assert.equal(reviews(), 5);
+    // New conversation content clears the stale failure entirely.
+    f.entries.push({ type: "message", id: "b", parentId: "a", message: { role: "user", content: "new evidence" } });
+    f.save(); f.advance(3600_000); await f.c.tick();
+    assert.equal(reviews(), 6); assert.equal(f.store.get(f.path)!.errors!.review!.failures, 1);
+  } finally { await f.close(); }
+});
+
+test("deferrals between failures neither count nor reset the retry limit", async () => {
+  let deferred = false;
+  const f = await fixture({ upgraded: true, summary: false, fail: "review", config: { maxRetries: 1, compaction: { enabled: false } },
+    get issue() { return deferred ? { maintenanceIssue: 1, kind: "deferred", code: "bundle-lock", resource: "b" } : {}; } });
+  try {
+    f.advance(); await f.c.tick(); assert.equal(f.store.get(f.path)!.errors!.review!.failures, 1);
+    deferred = true; f.advance(3600_000); await f.c.tick();
+    assert.equal(f.store.get(f.path)!.errors!.review!.failures, 1);
+    deferred = false; f.advance(3600_000); await f.c.tick();
+    assert.ok(f.store.get(f.path)!.errors!.review!.parked);
+  } finally { await f.close(); }
+});
+
 test("manual retry clears only delay and retains history without interrupting an active turn", async () => {
   const f = await fixture({ upgraded: true, summary: false, fail: "review", config: { compaction: { enabled: false } } });
   try {

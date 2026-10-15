@@ -4,6 +4,8 @@ export interface Issue {
   failures: number; retryAt: number; error: string;
   attempts?: number; firstAttemptAt?: number; lastAttemptAt?: number;
   kind?: IssueKind; code?: string; resource?: string; detail?: unknown; message?: string;
+  /** Automatic retries stopped at maxRetries under these stage settings (see Coordinator.retrySettings). */
+  parked?: { at: number; settings: string };
 }
 export interface Classified { kind: IssueKind; code: string; resource?: string; message: string; detail?: unknown }
 export function maintenanceIssue(kind: IssueKind, code: string, resource: string, message: string): Error {
@@ -35,6 +37,9 @@ export function classify(error: unknown): Classified {
     return { kind: e.kind as IssueKind, code: e.code, resource: typeof e.resource === "string" ? e.resource : undefined, message, detail: e.detail };
   }
   if (message === LEGACY_MISSING_BINARY) return { kind: "blocked", code: "okf-binary", message };
+  // Older adapters reported capacity failures as exact plain messages; recognize only those.
+  if (/^(?:Review|Maintenance|Summary model) stopped: length$/.test(message)) return { kind: "error", code: "model-output-limit", message };
+  if (/^Model call timed out after \d+(?:\.\d+)?s$/.test(message)) return { kind: "error", code: "model-timeout", message };
   return legacyValidation(message) ?? { kind: "error", code: "operation-failed", message };
 }
 export function normalizeRecord(record: RecordState): RecordState {
@@ -44,6 +49,10 @@ export function normalizeRecord(record: RecordState): RecordState {
       issue.kind = "blocked"; issue.code = "okf-binary"; issue.resource = record.cwd;
       continue; // preserve original counters/error/backoff; provenance was not recorded historically
     }
+    if (issue.code === "operation-failed") {
+      const legacy = classify(new Error(issue.error)).code;
+      if (legacy === "model-output-limit" || legacy === "model-timeout") issue.code = legacy; // display/guidance only; counters and backoff unchanged
+    }
     if (issue.kind && ["deferred", "blocked", "error"].includes(issue.kind)) continue;
     const result = classify(new Error(issue.error));
     issue.kind = result.kind; issue.code = result.code; issue.resource = result.resource; issue.detail = result.detail; issue.message = result.message;
@@ -51,7 +60,7 @@ export function normalizeRecord(record: RecordState): RecordState {
   }
   return record;
 }
-export interface IssueGroup { kind: IssueKind; code: string; resource: string; message: string; paths: Set<string>; stages: Set<string>; retryAt: number; detail?: unknown; attempts: number; lastAttemptAt?: number; legacyHistory: boolean }
+export interface IssueGroup { kind: IssueKind; code: string; resource: string; message: string; paths: Set<string>; stages: Set<string>; retryAt: number; detail?: unknown; attempts: number; lastAttemptAt?: number; legacyHistory: boolean; parked?: number }
 export function groupedIssues(records: RecordState[], enabled: (stage: string, r: RecordState) => boolean = () => true): IssueGroup[] {
   const groups = new Map<string, IssueGroup>();
   const add = (record: RecordState, issue: Issue, stage: string) => {
@@ -59,7 +68,8 @@ export function groupedIssues(records: RecordState[], enabled: (stage: string, r
     const resource = info.resource ?? (info.code === "okf-binary" ? record.cwd : record.path);
     const key = JSON.stringify([info.kind, info.code, resource]);
     let group = groups.get(key);
-    if (!group) { group = { kind: info.kind, code: info.code, resource, message: info.message, paths: new Set(), stages: new Set(), retryAt: issue.retryAt, detail: info.detail, attempts: issue.attempts ?? issue.failures, lastAttemptAt: issue.lastAttemptAt, legacyHistory: issue.attempts === undefined };  groups.set(key, group); }
+    if (!group) { group = { kind: info.kind, code: info.code, resource, message: info.message, paths: new Set(), stages: new Set(), retryAt: issue.retryAt, detail: info.detail, attempts: issue.attempts ?? issue.failures, lastAttemptAt: issue.lastAttemptAt, legacyHistory: issue.attempts === undefined, parked: 0 }; groups.set(key, group); }
+    if (issue.parked) group.parked = (group.parked ?? 0) + 1;
     group.paths.add(record.path); group.stages.add(stage); group.retryAt = Math.min(group.retryAt, issue.retryAt);
     group.attempts = Math.max(group.attempts, issue.attempts ?? issue.failures);
     if ((issue.lastAttemptAt ?? 0) >= (group.lastAttemptAt ?? 0) && issue.lastAttemptAt !== undefined) {

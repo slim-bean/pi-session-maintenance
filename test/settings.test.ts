@@ -27,10 +27,10 @@ test("interactive settings edit a draft and save validated workspace values atom
   const dir = mkdtempSync(join(tmpdir(), "maintenance-settings-"));
   try {
     const cfg = parseConfig({}, dir);
-    const h = ui(dir, ["Idle delay:", "Model call / compaction timeout:", "Review model:", "local/worker", "Maintenance compaction:", "Between-turn context budget:", "Daily model budget:", "Memory ownership:", "full", "Memory Git identity:", "Save & apply"], ["30m", "20m", "200k", "$2.50", "Authorized Agent", "agent@example.invalid"]);
+    const h = ui(dir, ["Idle delay:", "Model call / compaction timeout:", "Automatic retry limit:", "Review model:", "local/worker", "Maintenance compaction:", "Between-turn context budget:", "Daily model budget:", "Memory ownership:", "full", "Memory Git identity:", "Save & apply"], ["30m", "20m", "3", "200k", "$2.50", "Authorized Agent", "agent@example.invalid"]);
     const result = await editSettings(h.ctx, cfg, () => {});
     assert.ok(result); assert.equal(result.idleSeconds, 1800); assert.equal(result.reviewModel, "local/worker");
-    assert.equal(result.modelTimeoutSeconds, 1200);
+    assert.equal(result.modelTimeoutSeconds, 1200); assert.equal(result.maxRetries, 3); assert.equal(cfg.maxRetries, 10);
     assert.equal(result.compaction.enabled, true); assert.equal(result.compaction.budgetTokens, 200000); assert.equal(result.dailyBudget, 2.5);
     assert.equal(existsSync(settingsFile(dir)), false); // menu itself never writes
     saveSettings(dir, result, null);
@@ -41,6 +41,8 @@ test("interactive settings edit a draft and save validated workspace values atom
     assert.equal(persisted.memoryOwnership, "full"); assert.deepEqual(persisted.memoryGitIdentity, { name: "Authorized Agent", email: "agent@example.invalid" });
     assert.equal(cfg.memoryOwnership, "limited"); assert.equal(cfg.memoryGitIdentity, undefined);
     for (const value of [0, -1, 3601, 1.5, "600"]) assert.throws(() => parseConfig({ modelTimeoutSeconds: value }, dir), /modelTimeoutSeconds/);
+    for (const value of [-1, 1001, 1.5, "3"]) assert.throws(() => parseConfig({ maxRetries: value }, dir), /maxRetries/);
+    assert.equal(parseConfig({ maxRetries: 0 }, dir).maxRetries, 0);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 test("cancel, invalid input and declined push do not mutate the original config", async () => {

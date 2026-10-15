@@ -91,7 +91,9 @@ export class Store {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       for (const record of this.records(cwd)) {
-        for (const issue of Object.values(record.errors ?? {})) if (issue) issue.retryAt = 0;
+        // Manual retry grants one more attempt to parked jobs; counters/history are kept,
+        // so an unchanged failure parks again immediately.
+        for (const issue of Object.values(record.errors ?? {})) if (issue) { issue.retryAt = 0; delete issue.parked; }
         this.put(record);
       }
       this.db.exec("COMMIT");

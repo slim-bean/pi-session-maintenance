@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { parseConfig } from "../src/config.ts";
 import { formatStatus, formatSettings, timeSpan, type Status } from "../src/format.ts";
 import type { Capabilities } from "../src/protocol.ts";
+import { normalizeRecord } from "../src/issues.ts";
 
 const now = Date.UTC(2026, 9, 3, 12);
 const caps: Capabilities = { memory: { protocol: 1, channel: "memory" }, summary: { protocol: 1, channel: "summary" } };
@@ -45,4 +46,16 @@ test("coverage list is bounded and disabled compaction is described in settings"
   assert.match(settings, /Compaction: off/); assert.match(settings, /Between-turn budget: off/);
   assert.match(settings, /Review model: automatic/);
   assert.equal(timeSpan(1800), "30m"); assert.equal(timeSpan(7200), "2h");
+});
+test("legacy output-limit failures get specific guidance; parked jobs say retries stopped and how to resume", () => {
+  const s = status();
+  s.sessions[0]!.errors = { review: { failures: 85, attempts: 85, retryAt: now + 1000_000, lastAttemptAt: now - 60_000,
+    kind: "error", code: "operation-failed", error: "Review stopped: length", message: "Review stopped: length", parked: { at: now, settings: "[]" } } };
+  s.sessions = s.sessions.map(r => normalizeRecord(r));
+  const text = formatStatus(s, caps, now);
+  assert.match(text, /output-token limit/); assert.match(text, /splits a failing review section/);
+  assert.match(text, /Automatic retry: stopped after 85 unsuccessful checks \(limit: 10 retries\)/);
+  assert.match(text, /grants one more attempt/); assert.doesNotMatch(text, /Automatic retry: eligible|retry in/);
+  s.config = parseConfig({ maxRetries: 100 }, "/workspace"); // a raised limit re-admits
+  assert.doesNotMatch(formatStatus(s, caps, now), /Automatic retry: stopped/);
 });

@@ -60,6 +60,7 @@ export async function editSettings(ctx: ExtensionContext, current: Config, asser
       { key: "enabled", label: `Configured enablement: ${enabled(draft.enabled)}` },
       { key: "idleSeconds", label: `Idle delay: ${timeSpan(draft.idleSeconds)}` },
       { key: "modelTimeoutSeconds", label: `Model call / compaction timeout: ${timeSpan(draft.modelTimeoutSeconds)}` },
+      { key: "maxRetries", label: `Automatic retry limit: ${draft.maxRetries} per failing job` },
       { key: "knowledge", label: `Knowledge review: ${enabled(draft.knowledge)}` },
       { key: "memoryOwnership", label: `Memory ownership: ${draft.memoryOwnership === "full" ? "full — autonomous recovery, no human approval" : "limited — structural repair only"}` },
       { key: "memoryGitIdentity", label: `Memory Git identity: ${draft.memoryGitIdentity ? `${draft.memoryGitIdentity.name} <${draft.memoryGitIdentity.email}>` : "existing Git configuration"}` },
@@ -116,7 +117,12 @@ export async function editSettings(ctx: ExtensionContext, current: Config, asser
         assertCurrent(); if (zone === undefined) continue;
         next.sessionRotation.timeZone = zone.trim();
       } else if (key === "compaction") next.compaction.enabled = !next.compaction.enabled;
-      else if (key === "reviewModel" || key === "summaryModel") {
+      else if (key === "maxRetries") {
+        const text = await ctx.ui.input("Automatic retries before a failing job stops (0–1000; deferrals do not count)", String(draft.maxRetries));
+        assertCurrent(); if (text === undefined) continue;
+        if (!/^\d+$/.test(text.trim())) throw new Error("Enter a whole number of retries such as 10");
+        next.maxRetries = Number(text.trim());
+      } else if (key === "reviewModel" || key === "summaryModel") {
         const choice = await chooseModel(ctx, key === "reviewModel" ? "Knowledge review model" : "Session summary model", assertCurrent);
         assertCurrent();
         if (choice === undefined) continue;

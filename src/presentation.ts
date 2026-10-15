@@ -163,6 +163,7 @@ export function runRows(run: RunInfo, options: { prompts?: boolean; thinking?: b
     if (type === "outcome") rows.push({ heading: true, text: `📋 Result${d?.complete === true ? " · completed" : " · checkpoint/pending"}` }, ...details(d?.detail ?? d));
     else if (type === "validation") rows.push({ heading: true, text: d?.ok === true ? "✓ Validation passed" : "⚠ Validation requires repair", tone: d?.ok === true ? "success" : "warning" }, ...details(d?.ok === true ? d?.advisories : d?.validation ?? d));
     else if (type === "repair") rows.push({ heading: true, text: "🔧 Automatic structural repair" }, ...details(d?.files ?? d));
+    else if (type === "split") rows.push({ heading: true, text: `✂ Section split after ${d?.reason ?? "a capacity failure"}; smaller parts continue automatically`, tone: "warning" }, ...details(d));
     else if (type === "commit") rows.push({ label: "🔗 Commit", text: d?.commit ?? "No new commit", tone: d?.commit ? "success" : "muted" });
     else if (type === "error" || type === "cancelled") rows.push({ heading: true, text: type === "error" ? "✗ Error / blocker" : "■ Cancelled", tone: type === "error" ? "error" : "warning" }, ...details(d));
     else if (!["model", "model-context", "usage", "model-end", "model-progress"].includes(type)) rows.push({ heading: true, text: `◇ ${name(String(type))}` }, ...details(d));

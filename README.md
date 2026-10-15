@@ -63,6 +63,7 @@ Optional `.pi/maintenance.json` in the current working directory:
   "push": false,
   "modelTranscripts": true,
   "modelTimeoutSeconds": 600,
+  "maxRetries": 10,
   "sessionRotation": {
     "enabled": false,
     "timeZone": "UTC"
@@ -290,7 +291,13 @@ on an older snapshot just finished.
 
 Stages retry independently. Actual errors and blocking conditions use exponential
 backoff capped at one hour; routine deferrals (busy bundles, stale snapshots or tool
-pairing) wait one polling interval without accumulating failure counts. Structured
+pairing) wait one polling interval without accumulating (or resetting) failure counts.
+After `maxRetries` (default **10**, 0–1000) automatic retries of one failing job, it
+**parks**: status shows `automatic retry stopped` and no further automatic attempts
+are made. A parked job is re-admitted when its conversation changes, when the stage's
+model/timeout/ownership/identity settings change or `maxRetries` is raised (one
+attempt), or by `/maintenance retry` (one attempt; history is kept, so an unchanged
+failure parks again). Deferrals never park. Structured
 adapter issues identify kind, stable code and canonical resource. A shared knowledge
 bundle blocker affecting six sessions is counted **once**, with all affected reviews
 shown in status, not as six independent execution failures. Each issue shows the
@@ -318,8 +325,9 @@ Use them in the owning window.
 Status states those gates and notes that retrying cannot fix a static prerequisite.
 Configuration/validation/Git blockers include concrete actions (reported findings,
 provider setup, author identity, upstream, conflicts, credentials or signing).
-Repeated unknown failures recommend investigation, while automatic retries remain
-scheduled.
+Repeated unknown failures recommend investigation; automatic retries continue only
+up to the retry limit. Model `length` stops and call timeouts have specific guidance:
+current OKF adapters first split the failing review section into smaller pieces.
 
 In limited mode, validation repair is **agent-owned and automatic within structural authority**:
 missing index navigation and drifted descriptions are restored from concept metadata;

@@ -28,6 +28,8 @@ export function nextSteps(g: IssueGroup): Guidance {
     case "git-conflict": return needed("Finish or deliberately resolve the repository's merge/rebase/cherry-pick and unmerged index entries, preserving unrelated work. Maintenance will not reset, stash, or resolve conflicts blindly.");
     case "git-signing": return needed("Fix Git signing/key availability so commits work unattended, or explicitly choose an approved repository signing policy. Maintenance never bypasses signing or hooks.");
     case "git-push-rejected": return needed("Inspect the upstream rejection; reconcile divergent history or satisfy the remote hook/branch policy. No automatic force push or rebase is performed.");
+    case "model-output-limit": return needed("The model spent its whole output-token limit (often on reasoning) before answering. Current pi-okf-agent-memory splits a failing review section automatically; this persists when the smallest piece still fails or an older adapter is loaded (update and reload).", "Otherwise choose a model with a larger output limit or a non-thinking/lower-reasoning variant in /maintenance settings.");
+    case "model-timeout": return needed("The model call exceeded modelTimeoutSeconds. Current pi-okf-agent-memory splits a timed-out review section automatically; this persists when the smallest piece still times out or an older adapter is loaded (update and reload).", "Otherwise raise the timeout (max 1h) in /maintenance settings, use a faster model/server, or reduce concurrent load on a shared local model server.");
     case "memory-validation": {
       const d = g.detail as { validation?: Record<string, any>; orphanPolicy?: string; repair?: { automatic?: boolean; status?: string; attempts?: number; reason?: string } } | undefined;
       const v = d?.validation;
@@ -52,6 +54,7 @@ export function nextSteps(g: IssueGroup): Guidance {
     g.code === "git-push" ? "Automatic retry can recover a transient network/upstream outage. If it persists, check the remote service and network reachability." :
     g.code === "git-finalization" ? "Inspect the Git diagnostic above, including hooks and repository permissions. Saved extraction is retained while finalization retries." :
     "Inspect the diagnostic above and the configured model/provider or resource. Maintenance has not established a more specific repair, so it will not invent one.",
-    ...(repeated ? ["Repeated attempts have not cleared this condition; investigate or delegate the stated repair. Automatic retries remain enabled when scheduling allows."] : []),
+    ...(repeated ? [g.parked ? "Repeated attempts have not cleared this condition and automatic retries have stopped at the configured limit; investigate or delegate the stated repair."
+      : "Repeated attempts have not cleared this condition; investigate or delegate the stated repair. Automatic retries continue until the configured limit."] : []),
   ] };
 }

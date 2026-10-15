@@ -95,7 +95,7 @@ export function formatStatus(status: Status & { sessionRotation?: { pending: boo
     `Memory ownership: ${cfg.memoryOwnership === "full" ? "full — agent-owned recovery; no human approval" : "limited — structural repair"}`,
     `Schedule: after ${timeSpan(cfg.idleSeconds)} idle · check every ${timeSpan(cfg.pollSeconds)}`,
     `Daily session rotation: ${cfg.sessionRotation.enabled ? `on · YYYY-MM-DD · ${cfg.sessionRotation.timeZone}${status.sessionRotation?.progress ? ` · ${clean(status.sessionRotation.progress)}` : ""}` : "off"}`,
-    `Model call / compaction timeout: ${timeSpan(cfg.modelTimeoutSeconds)}`,
+    `Model call / compaction timeout: ${timeSpan(cfg.modelTimeoutSeconds)} · automatic retries: up to ${cfg.maxRetries} per failing job`,
     `Budget: ${money(status.spentToday)} / ${money(cfg.dailyBudget)} today · ${money(cfg.maxCostPerCycle)} per opportunity (approx.)`,
     `Sessions: ${records.length} observed · ${pending} need saved coverage`,
     `Issues: ${groups.filter((g) => g.kind === "error").length} errors · ${groups.filter((g) => g.kind === "blocked").length} blockers · ${groups.filter((g) => g.kind === "deferred").length} waiting`,
@@ -109,7 +109,9 @@ export function formatStatus(status: Status & { sessionRotation?: { pending: boo
     lines.push("", "Maintenance issues (shared resources counted once)");
     for (const g of groups.slice(0, 8)) {
       const kind = g.kind === "deferred" ? "Waiting" : g.kind === "blocked" ? "Blocked" : "Error";
-      const retry = g.retryAt > now ? `retry in ${timeSpan((g.retryAt - now) / 1000)}` : "retry eligible";
+      // A raised maxRetries re-admits immediately; settings changes are confirmed by the next attempt.
+      const parked = Boolean(g.parked) && g.attempts > cfg.maxRetries;
+      const retry = parked ? "automatic retry stopped" : g.retryAt > now ? `retry in ${timeSpan((g.retryAt - now) / 1000)}` : "retry eligible";
       lines.push(`• ${kind}: ${clean(g.message, 240)}`);
       lines.push(`  ${prettyPath(g.resource)} · affects ${g.paths.size} session(s) · ${retry}`);
       if (g.attempts > 0) {
@@ -117,12 +119,13 @@ export function formatStatus(status: Status & { sessionRotation?: { pending: boo
           g.attempts === 1 ? "First unsuccessful check; no retry recorded yet." : `${g.attempts} unsuccessful checks for an affected job; already retried ${g.attempts - 1} time(s).`;
         lines.push(`  History: ${history}${g.lastAttemptAt ? ` Last check ${timeSpan(Math.max(0, now - g.lastAttemptAt) / 1000)} ago.` : ""}`);
       } else lines.push("  History: no attempt history recorded for this condition.");
-      const guidance = nextSteps(g);
+      const guidance = nextSteps({ ...g, parked: parked ? g.parked : 0 });
       lines.push(`  Next: ${guidance.intervention === "needed" ? "Action needed before this can pass." : guidance.intervention === "suggested" ? "Investigation recommended; repeated retries have not resolved it." : "No intervention required yet."}`);
       for (const action of guidance.actions.slice(0, 6)) lines.push(`    ${clean(action, 400)}`);
       if (guidance.actions.length > 6) lines.push("    More findings remain in memory_validate.");
       const modelWork = [...g.stages].some((stage) => stage !== "push" && stage !== "source");
-      if (off) lines.push("  Automatic retry: paused while maintenance is off; /maintenance on enables it.");
+      if (parked) lines.push(`  Automatic retry: stopped after ${g.attempts} unsuccessful checks (limit: ${cfg.maxRetries} retries). Resumes when the conversation changes, the stage's model/timeout/ownership settings change, or maxRetries is raised.`);
+      else if (off) lines.push("  Automatic retry: paused while maintenance is off; /maintenance on enables it.");
       else if (suspended) lines.push(`  Automatic retry: after the pause ends (${timeSpan((status.control!.paused_until - now) / 1000)}), at a safe idle window.`);
       else if (modelWork && status.spentToday >= cfg.dailyBudget) lines.push("  Automatic retry: after the UTC daily budget resets (or an approved budget increase), at safe idle.");
       else if (status.foregroundBusy || status.peerBusy) {
@@ -131,7 +134,7 @@ export function formatStatus(status: Status & { sessionRotation?: { pending: boo
         const wait = Math.max(0, (g.retryAt - now) / 1000, status.idleRemainingSeconds);
         lines.push(`  Automatic retry: ${wait > 0 ? `eligible in ${timeSpan(wait)}, then at` : "at the next"} safe idle window.${guidance.intervention === "needed" ? " Retrying alone cannot repair this prerequisite." : ""}`);
       }
-      lines.push(`  Retry now: /maintenance retry removes backoff immediately and attempts the earliest safe idle window${status.owner && !status.ownsSession ? `; run it in owner PID ${status.owner.pid}'s window` : ""}. Active turns are not interrupted.`);
+      lines.push(`  Retry now: /maintenance retry ${parked ? "grants one more attempt" : "removes backoff"} immediately at the earliest safe idle window${status.owner && !status.ownsSession ? `; run it in owner PID ${status.owner.pid}'s window` : ""}. Active turns are not interrupted.`);
     }
     if (groups.length > 8) lines.push(`… ${groups.length - 8} more distinct issues`);
   }
@@ -150,7 +153,7 @@ export function formatStatus(status: Status & { sessionRotation?: { pending: boo
       if (r.error) lines.push(`  Source: ${clean(r.error, 240)}`);
       for (const [stage, issue] of relevantErrors(r, status, caps)) {
         if (!issue) continue;
-        const retry = issue.retryAt > now ? `retry in ${timeSpan((issue.retryAt - now) / 1000)}` : "retry eligible";
+        const retry = issue.parked && issue.failures > cfg.maxRetries ? "automatic retry stopped" : issue.retryAt > now ? `retry in ${timeSpan((issue.retryAt - now) / 1000)}` : "retry eligible";
         const state = issue.kind === "deferred" ? "waiting" : issue.kind === "blocked" ? "blocked" : "error";
         lines.push(`  ${stageName(stage)} ${state}, ${retry}${issue.resource ? " (see shared issue above)" : `: ${clean(issue.message ?? issue.error, 240)}`}`);
       }
@@ -174,7 +177,7 @@ export function formatSettings(cfg: Config, cwd: string): string {
     `Compaction: ${onOff(cfg.compaction.enabled)} · Idle floor: ${cfg.compaction.minTokens.toLocaleString()} tokens · Between-turn budget: ${cfg.compaction.budgetTokens?.toLocaleString() ?? "off"}`,
     `Daily session rotation: ${onOff(cfg.sessionRotation.enabled)} · Calendar time zone: ${cfg.sessionRotation.timeZone} · Name: YYYY-MM-DD`,
     `Push to configured upstream: ${onOff(cfg.push)}`,
-    `Model call / compaction timeout: ${timeSpan(cfg.modelTimeoutSeconds)}`,
+    `Model call / compaction timeout: ${timeSpan(cfg.modelTimeoutSeconds)} · Automatic retry limit: ${cfg.maxRetries} per failing job`,
     `Private model transcripts: ${onOff(cfg.modelTranscripts)} · /maintenance watch · /maintenance history`,
     `Private state: ${prettyPath(cfg.stateDir)} (change requires reload)`,
   ].join("\n");

@@ -135,7 +135,7 @@ export class Coordinator {
       this.footerError = false;
       if (!this.store.claim("executor:" + this.ctx.cwd)) { this.progress = "another maintenance executor is active"; this.render(); return; }
       try {
-        if (this.budgetDue() && (activeRecord.errors?.compact?.retryAt ?? 0) <= this.now() &&
+        if (this.budgetDue() && this.due(activeRecord, "compact") &&
             (activeRecord.compact?.hash !== s.hash || activeRecord.compact.key !== this.compactKey())) {
           await this.execute("compact", s, undefined, cancelSeq);
           return;
@@ -227,7 +227,7 @@ export class Coordinator {
                 }
               }
             }
-            const due = (stage: Stage) => (current.errors?.[stage]?.retryAt ?? 0) <= this.now();
+            const due = (stage: Stage) => this.due(current, stage);
             if (caps.memory && memoryStatus?.available && !memoryStatus.upgraded && this.config.upgrades && due("upgrade")) {
               await this.execute("upgrade", source, caps.memory.channel, cancelSeq); return;
             }
@@ -411,16 +411,36 @@ export class Coordinator {
       this.running = undefined; this.render();
     }
   }
+  /** Settings whose change can plausibly cure a repeated failure; a change re-admits a parked job once. */
+  private retrySettings(stage: Stage, record: RecordState): string {
+    const c = this.config;
+    return JSON.stringify(stage === "summary" ? [c.summaryModel ?? record.summaryModel, c.modelTimeoutSeconds] :
+      stage === "compact" ? [c.compaction, c.modelTimeoutSeconds] :
+      [c.reviewModel ?? record.reviewModel, c.modelTimeoutSeconds, c.memoryOwnership, c.memoryGitIdentity ?? null]);
+  }
+  /** Parked: automatic retries exhausted under unchanged settings. Source edits clear issues (Store.observe);
+   * /maintenance retry clears the park for one more attempt; raising maxRetries re-admits too. */
+  private parked(record: RecordState, stage: Stage): boolean {
+    const issue = record.errors?.[stage];
+    return Boolean(issue?.parked && issue.kind !== "deferred" && issue.failures > this.config.maxRetries &&
+      issue.parked.settings === this.retrySettings(stage, record));
+  }
+  private due(record: RecordState, stage: Stage): boolean {
+    return !this.parked(record, stage) && (record.errors?.[stage]?.retryAt ?? 0) <= this.now();
+  }
   private fail(record: RecordState, stage: Stage, error: unknown) {
     const old = record.errors?.[stage];
     const info = classify(error);
-    const failures = info.kind === "deferred" ? 0 : (old?.failures ?? 0) + 1;
+    // Deferrals neither count nor reset: alternating error/wait cycles still reach maxRetries.
+    const failures = (old?.failures ?? 0) + (info.kind === "deferred" ? 0 : 1);
     const delay = info.kind === "deferred" ? Math.max(5000, this.config.pollSeconds * 1000) : Math.min(3600_000, 30_000 * 2 ** Math.min(failures - 1, 7));
+    const parked = info.kind !== "deferred" && failures > this.config.maxRetries ? { at: this.now(), settings: this.retrySettings(stage, record) } : undefined;
     (record.errors ??= {})[stage] = { failures, retryAt: this.now() + delay, error: (error as Error).message ?? String(error),
       kind: info.kind, code: info.code, resource: info.resource, detail: info.detail, message: info.message,
       attempts: (old?.attempts ?? old?.failures ?? 0) + 1,
-      firstAttemptAt: old ? old.firstAttemptAt : this.now(), lastAttemptAt: this.now() };
-    this.store.put(record); this.progress = `${stage} ${info.kind}: ${info.message}`;
+      firstAttemptAt: old ? old.firstAttemptAt : this.now(), lastAttemptAt: this.now(), ...(parked ? { parked } : {}) };
+    this.store.put(record);
+    this.progress = `${stage} ${info.kind}: ${info.message}${parked ? ` (automatic retries stopped after ${failures} failures)` : ""}`;
   }
   holdForSettings(): () => void {
     this.localHolds++;
