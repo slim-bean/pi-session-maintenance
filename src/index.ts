@@ -10,6 +10,7 @@ import { RunViewer } from "./viewer.ts";
 import { HistoryViewer } from "./history.ts";
 import { safeText } from "./text.ts";
 import { passiveCommand, passiveTerminalInput } from "./passive-input.ts";
+import { DailyRotation } from "./rotation.ts";
 
 export default function maintenance(pi: ExtensionAPI) {
   let coordinator: Coordinator | undefined;
@@ -19,7 +20,10 @@ export default function maintenance(pi: ExtensionAPI) {
   let transition: Promise<void> = Promise.resolve();
   let monitorOpen = false;
   let closeMonitor: (() => void) | undefined;
+  const rotation = new DailyRotation(pi, () => coordinator && ctx ? { coordinator, context: ctx, monitorOpen } : undefined);
+  const status = (c: Coordinator) => ({ ...c.status(), sessionRotation: rotation.status() });
   const close = async () => {
+    rotation.close();
     closeMonitor?.(); closeMonitor = undefined; monitorOpen = false;
     terminalInput?.(); terminalInput = undefined;
     await coordinator?.close(); coordinator = undefined;
@@ -37,11 +41,12 @@ export default function maintenance(pi: ExtensionAPI) {
         if ((config.knowledge || config.upgrades) && installed.has("memory_search") && !capabilities.memory) throw new Error("Update pi-okf-agent-memory and reload: the installed package has no maintenance adapter");
         coordinator = new Coordinator(pi.events, new Store(config.stateDir), config);
         await coordinator.attach(nextCtx, loaded.source);
+        coordinator.setRotationGate(() => rotation.poll());
         if (nextCtx.mode === "tui") terminalInput = nextCtx.ui.onTerminalInput((data) => {
           if (!monitorOpen && !passiveTerminalInput(nextCtx.ui.getEditorText(), data)) coordinator?.activity();
           return undefined;
         });
-        coordinator.start();
+        coordinator.start(); rotation.start();
       } catch (e) {
         error = (e as Error).message; await close();
         nextCtx.ui.notify(`Session maintenance setup failed: ${error}`, "error");
@@ -51,7 +56,8 @@ export default function maintenance(pi: ExtensionAPI) {
   });
   pi.on("input", (event) => { if (!passiveCommand(event.text)) coordinator?.activity(); });
   pi.on("agent_start", () => { coordinator?.activity(); });
-  pi.on("agent_settled", () => { coordinator?.settled(); });
+  pi.on("agent_settled", () => { coordinator?.settled(); rotation.start(); });
+  pi.on("session_before_switch", () => rotation.beforeSwitch());
   pi.on("session_shutdown", async () => { await transition; await close(); ctx = undefined; });
   const requireCoordinator = () => {
     if (!coordinator) throw new Error(error ?? "Session maintenance is not initialized");
@@ -93,6 +99,7 @@ export default function maintenance(pi: ExtensionAPI) {
     suspend: "Pause for a duration, e.g. 30m", resume: "Clear workspace suspension and begin a fresh idle interval",
     off: "Disable this workspace", on: "Enable maintenance and clear workspace suspension",
     retry: "Alias for run: start now or report the blocker", backfill: "Queue one saved session from this workspace",
+    rotate: "Rotate an overdue daily session at a safe idle boundary (requires opt-in)",
     help: "Show commands and examples",
   };
   const values = Object.keys(descriptions);
@@ -110,7 +117,15 @@ export default function maintenance(pi: ExtensionAPI) {
         const c = requireCoordinator();
         const [requested = "status", ...rest] = args.trim().split(/\s+/).filter(Boolean);
         const action = requested === "logs" ? "history" : requested; // compatibility alias, not advertised
-        if (action === "status") commandCtx.ui.notify(formatStatus(c.status(), discover(pi.events)), "info");
+        if (action === "rotate") {
+          const message = await rotation.execute(commandCtx, rest[0]);
+          // Successful replacement invalidates the original context. Its fresh
+          // withSession callback reports completion; only report non-switch results here.
+          if (coordinator === c) commandCtx.ui.notify(safeText(message), "info");
+          return;
+        }
+        if (action === "rotation-restore") { await rotation.restore(commandCtx); return; } // internal command, not a model request
+        if (action === "status") commandCtx.ui.notify(formatStatus(status(c), discover(pi.events)), "info");
         else if (action === "watch" || action === "history") await inspectRun(commandCtx, action === "history", rest[0]);
         else if (action === "settings") {
           if (!commandCtx.hasUI || rest[0] === "show") { commandCtx.ui.notify(formatSettings(c.config, commandCtx.cwd), "info"); return; }
@@ -132,6 +147,7 @@ export default function maintenance(pi: ExtensionAPI) {
               assertCurrent(); await c.cancel(); assertCurrent();
               saveSettings(commandCtx.cwd, draft, fileBefore);
               await c.configure(draft, { kind: "workspace-file", file: settingsFile(commandCtx.cwd) });
+              rotation.reset();
               if (!draft.enabled) c.off();
               else if (!baseline.enabled) c.on();
             });
@@ -174,14 +190,14 @@ export default function maintenance(pi: ExtensionAPI) {
       const c = requireCoordinator();
       if (r.operation === "configure") {
         const config = parseConfig(r.settings, ctx!.cwd);
-        await c.configure(config);
+        await c.configure(config); rotation.reset();
       } else if (r.operation === "suspend") c.suspend(duration(String(r.seconds ?? 1800)));
       else if (r.operation === "resume") c.resume();
       else if (r.operation === "cancel") await c.cancel();
       else if (r.operation === "run" || r.operation === "retry") {
-        const admission = await c.runNow(); return { ...c.status(), admission };
+        const admission = await c.runNow(); return { ...status(c), admission };
       } else if (r.operation !== "status") throw new Error("Unknown maintenance control operation");
-      return coordinator!.status();
+      return status(coordinator!);
     });
     transition = r.result.then(() => {}, () => {});
   });

@@ -8,6 +8,7 @@ export interface Config {
   reviewModel?: string; summaryModel?: string;
   maxCostPerCycle: number; dailyBudget: number; modelTimeoutSeconds: number;
   compaction: { enabled: boolean; minTokens: number; budgetTokens?: number };
+  sessionRotation: { enabled: boolean; timeZone: string };
   push: boolean;
   modelTranscripts: boolean;
   memoryOwnership: "limited" | "full";
@@ -28,7 +29,7 @@ function keys(raw: Record<string, unknown>, allowed: string[], name: string) {
 export function parseConfig(raw: unknown, cwd: string): Config {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("maintenance config must be an object");
   const r = raw as Record<string, any>;
-  keys(r, ["enabled", "idleSeconds", "pollSeconds", "knowledge", "summaries", "upgrades", "reviewModel", "summaryModel", "maxCostPerCycle", "dailyBudget", "compaction", "push", "modelTranscripts", "modelTimeoutSeconds", "memoryOwnership", "memoryGitIdentity", "stateDir"], "maintenance");
+  keys(r, ["enabled", "idleSeconds", "pollSeconds", "knowledge", "summaries", "upgrades", "reviewModel", "summaryModel", "maxCostPerCycle", "dailyBudget", "compaction", "push", "modelTranscripts", "modelTimeoutSeconds", "memoryOwnership", "memoryGitIdentity", "sessionRotation", "stateDir"], "maintenance");
   for (const key of ["enabled", "knowledge", "summaries", "upgrades", "push", "modelTranscripts"]) {
     if (r[key] !== undefined && typeof r[key] !== "boolean") throw new Error(`${key} must be boolean`);
   }
@@ -43,6 +44,14 @@ export function parseConfig(raw: unknown, cwd: string): Config {
     keys(r.memoryGitIdentity, ["name", "email"], "memoryGitIdentity");
     for (const key of ["name", "email"]) if (typeof r.memoryGitIdentity[key] !== "string" || !r.memoryGitIdentity[key].trim() || /[\r\n\0]/.test(r.memoryGitIdentity[key])) throw new Error(`memoryGitIdentity.${key} must be a nonempty single-line string`);
   }
+  const rotation = r.sessionRotation ?? {};
+  if (!rotation || typeof rotation !== "object" || Array.isArray(rotation)) throw new Error("sessionRotation must be an object");
+  keys(rotation, ["enabled", "timeZone"], "sessionRotation");
+  if (rotation.enabled !== undefined && typeof rotation.enabled !== "boolean") throw new Error("sessionRotation.enabled must be boolean");
+  const timeZone = rotation.timeZone ?? "UTC";
+  if (typeof timeZone !== "string" || !timeZone.trim()) throw new Error("sessionRotation.timeZone must be UTC, local, or an IANA time zone");
+  try { new Intl.DateTimeFormat("en", { timeZone: timeZone === "local" ? undefined : timeZone }); }
+  catch { throw new Error("sessionRotation.timeZone must be UTC, local, or an IANA time zone"); }
   const c = r.compaction ?? {};
   if (!c || typeof c !== "object" || Array.isArray(c)) throw new Error("compaction must be an object");
   keys(c, ["enabled", "minTokens", "budgetTokens"], "compaction");
@@ -50,6 +59,7 @@ export function parseConfig(raw: unknown, cwd: string): Config {
   if (r.stateDir !== undefined && (typeof r.stateDir !== "string" || !r.stateDir.trim())) throw new Error("stateDir must be a path");
   return {
     memoryOwnership: ownership, memoryGitIdentity: r.memoryGitIdentity ? { ...r.memoryGitIdentity } : undefined,
+    sessionRotation: { enabled: rotation.enabled ?? false, timeZone },
     enabled: r.enabled ?? true, knowledge: r.knowledge ?? true, summaries: r.summaries ?? true, upgrades: r.upgrades ?? true,
     idleSeconds: positive(r.idleSeconds ?? 600, "idleSeconds", 2_147_483),
     pollSeconds: positive(r.pollSeconds ?? 5, "pollSeconds", 60),

@@ -45,7 +45,7 @@ function relevantErrors(record: RecordState, status: Status, caps: Capabilities)
     stage === "push" ? status.config.push && caps.memory :
     status.config.compaction.enabled && record.path === status.currentSession);
 }
-export function formatStatus(status: Status, caps: Capabilities, now = Date.now()): string {
+export function formatStatus(status: Status & { sessionRotation?: { pending: boolean; progress?: string } }, caps: Capabilities, now = Date.now()): string {
   const cfg = status.config;
   const suspended = (status.control?.paused_until ?? 0) > now;
   const off = !cfg.enabled || Boolean(status.control?.disabled);
@@ -94,6 +94,7 @@ export function formatStatus(status: Status, caps: Capabilities, now = Date.now(
     `Stages: ${stages.join(" · ")}`,
     `Memory ownership: ${cfg.memoryOwnership === "full" ? "full — agent-owned recovery; no human approval" : "limited — structural repair"}`,
     `Schedule: after ${timeSpan(cfg.idleSeconds)} idle · check every ${timeSpan(cfg.pollSeconds)}`,
+    `Daily session rotation: ${cfg.sessionRotation.enabled ? `on · YYYY-MM-DD · ${cfg.sessionRotation.timeZone}${status.sessionRotation?.progress ? ` · ${clean(status.sessionRotation.progress)}` : ""}` : "off"}`,
     `Model call / compaction timeout: ${timeSpan(cfg.modelTimeoutSeconds)}`,
     `Budget: ${money(status.spentToday)} / ${money(cfg.dailyBudget)} today · ${money(cfg.maxCostPerCycle)} per opportunity (approx.)`,
     `Sessions: ${records.length} observed · ${pending} need saved coverage`,
@@ -171,6 +172,7 @@ export function formatSettings(cfg: Config, cwd: string): string {
     `Summary model: ${cfg.summaryModel ? clean(cfg.summaryModel) : "automatic (pinned per session)"}`,
     `Model budget: ${money(cfg.maxCostPerCycle)} per opportunity · ${money(cfg.dailyBudget)} per UTC day (approx.)`,
     `Compaction: ${onOff(cfg.compaction.enabled)} · Idle floor: ${cfg.compaction.minTokens.toLocaleString()} tokens · Between-turn budget: ${cfg.compaction.budgetTokens?.toLocaleString() ?? "off"}`,
+    `Daily session rotation: ${onOff(cfg.sessionRotation.enabled)} · Calendar time zone: ${cfg.sessionRotation.timeZone} · Name: YYYY-MM-DD`,
     `Push to configured upstream: ${onOff(cfg.push)}`,
     `Model call / compaction timeout: ${timeSpan(cfg.modelTimeoutSeconds)}`,
     `Private model transcripts: ${onOff(cfg.modelTranscripts)} · /maintenance watch · /maintenance history`,

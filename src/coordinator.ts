@@ -29,6 +29,7 @@ export class Coordinator {
   private closed = false;
   private closing?: Promise<void>;
   private timer?: ReturnType<typeof setInterval>;
+  private rotationGate?: () => boolean;
   private compactStart?: number;
   private progress = "waiting for idle";
   private footerError = false;
@@ -110,8 +111,12 @@ export class Coordinator {
     const tokens = this.ctx?.getContextUsage()?.tokens;
     return tokens !== null && tokens !== undefined && tokens >= this.config.compaction.budgetTokens;
   }
+  setRotationGate(check: () => boolean) { this.rotationGate = check; }
   async tick() {
     if (this.closed || this.tickRunning) return;
+    // Rotation queues a command outside this tick; awaiting a native switch here
+    // would deadlock session_shutdown against closeOnce's tick drain.
+    if (this.rotationGate?.()) return;
     this.tickRunning = true;
     const generation = this.generation;
     const cancelSeq = this.ctx ? this.store.control(this.ctx.cwd).cancel_seq : 0;
@@ -425,6 +430,38 @@ export class Coordinator {
       if (released) return;
       released = true; this.localHolds--;
       if (!this.closed) { this.lastActivity = this.now(); this.poll(); this.render(); }
+    };
+  }
+  /** Rotation uses the same ownership/idle gates but is independent of paid-work budgets. */
+  rotationBlocker(ownHold = false): string | undefined {
+    if (this.closed || !this.ctx || !this.current) return "no active saved-session path";
+    if (!this.enabled()) return "maintenance is off or suspended";
+    if (!this.store.owns("session:" + this.current)) return "another process owns this session";
+    if (this.localHolds > (ownHold ? 1 : 0)) return "settings or another session transition holds maintenance";
+    if (this.running || this.tickRunning) return "maintenance work is active";
+    if (!this.ctx.isIdle() || this.ctx.hasPendingMessages() || this.store.otherBusy(this.ctx.cwd)) return "foreground/peer work or queued input is active";
+    if (!this.force && this.now() - Math.max(this.lastActivity, this.store.control(this.ctx.cwd).last_activity) < this.config.idleSeconds * 1000) return "waiting for the configured idle interval";
+    if (this.ctx.mode === "tui" && this.ctx.ui.getEditorText().trim()) return "an unsent editor draft is present";
+    const branch = this.ctx.sessionManager.getBranch?.() ?? this.ctx.sessionManager.getEntries();
+    if (unresolvedTools(branch)) return "unresolved tool calls are present";
+    if (existsSync(this.current) && snapshot(this.current).hash !== hash(projectEntries(this.ctx.sessionManager.getEntries()))) return "saved and in-memory conversation differ";
+    const executor = this.store.lease("executor:" + this.ctx.cwd);
+    if (executor && executor.token !== this.store.owner && (executor.host !== hostname() || this.store.isAlive(executor.pid))) return "another workspace executor is active";
+    return undefined;
+  }
+  prepareRotation(): { check(): string | undefined; release(): void } | undefined {
+    if (this.rotationBlocker() || !this.store.claim("executor:" + this.ctx!.cwd)) return undefined;
+    this.localHolds++;
+    const generation = this.generation, current = this.current, cwd = this.ctx!.cwd;
+    const cancelSeq = this.store.control(cwd).cancel_seq;
+    let released = false;
+    return {
+      check: () => released || this.closed || generation !== this.generation || current !== this.current || this.store.control(cwd).cancel_seq !== cancelSeq
+        ? "session, configuration or foreground activity changed" : this.rotationBlocker(true),
+      release: () => {
+        if (released) return; released = true; this.localHolds--;
+        if (!this.closed) { this.store.release("executor:" + cwd); this.render(); }
+      },
     };
   }
   requestRun() { this.force = true; }

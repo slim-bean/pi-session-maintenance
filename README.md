@@ -1,7 +1,8 @@
 # pi-session-maintenance
 
 Optional, capability-driven idle maintenance for pi: **OKF upgrades and knowledge
-review → session-search summaries → optional compaction**. No permanent daemon,
+review → session-search summaries → optional compaction**, plus opt-in daily
+session rotation. No permanent daemon,
 browser engine, authenticated pi subprocess, or host-platform dependency.
 
 Loading this package authorizes the configured unattended model calls and
@@ -62,6 +63,10 @@ Optional `.pi/maintenance.json` in the current working directory:
   "push": false,
   "modelTranscripts": true,
   "modelTimeoutSeconds": 600,
+  "sessionRotation": {
+    "enabled": false,
+    "timeZone": "UTC"
+  },
   "compaction": {
     "enabled": false,
     "minTokens": 50000,
@@ -69,6 +74,43 @@ Optional `.pi/maintenance.json` in the current working directory:
   }
 }
 ```
+
+### Daily session rotation
+
+`sessionRotation.enabled` defaults to **false** everywhere. Enable it in workspace
+settings, `/maintenance settings`, or the generic host `configure` request:
+
+```json
+{ "sessionRotation": { "enabled": true, "timeZone": "UTC" } }
+```
+
+Active sessions receive `YYYY-MM-DD` display names based on their creation date.
+When the calendar advances, the next safe idle check starts a **fresh native Pi
+session** named for today, linking the previous saved session as its parent. UTC
+is the default; `local` or an IANA zone such as `America/New_York` selects another
+calendar. DST is calendar-based, not a 24-hour timeout. Missed days produce only
+one session for today; backward clock changes never rotate into a previous date.
+Enabling this on an older session catches up at the next safe idle boundary.
+
+Rotation waits for the normal idle interval, local session/executor ownership,
+no active maintenance/foreground/peer work, no queued input/unresolved tools, no
+unsent TUI draft and no open settings/monitor. Off/suspend pauses it. It has no
+model call or billing requirement and does not wait for memory/summary backlog to
+finish: departing history stays intact and queued, with archives never compacted.
+No conversation summary or transcript is copied into the fresh context. Session
+names are display metadata; native timestamp/ID filenames remain unchanged.
+Empty replacement sessions persist only after actual conversation, not a fake
+prompt. Existing names are replaced while opted in; the first old name is retained
+in rotation metadata.
+
+Native replacement runs through a token-bound `/maintenance rotate` command using
+Pi's command context, not session switching inside lifecycle handlers. Queued
+requests recheck session identity and activity; switch vetoes/failures retry with
+backoff. `/maintenance status` and host status expose progress. `/maintenance rotate`
+manually checks whether rotation is due without bypassing safety or opt-in.
+Runtime-local settings and selected model/thinking are restored through a fresh
+replacement context; newly applied host settings or changed workspace settings win
+for configuration. No host-platform detection or deployment defaults live here.
 
 ### Memory ownership
 
@@ -170,6 +212,7 @@ scheduler is implemented; configure concurrency on your server.
 /maintenance on                 # enable this runtime and clear workspace disable
 /maintenance retry              # alias for run; same immediate-admission behavior
 /maintenance backfill /path/to/session.jsonl
+/maintenance rotate             # safely rotate an overdue opted-in daily session
 /maintenance help               # human-readable commands and examples
 ```
 
@@ -327,6 +370,7 @@ A trusted adapter can use `pi-session-maintenance:control:v1`:
 const request = { protocol: 1, operation: "configure", settings: {
   memoryOwnership: "full",  // unattended agent-owned memory; no human approval
   idleSeconds: 900,
+  sessionRotation: { enabled: true, timeZone: "UTC" }, // opt-in host default
   compaction: { enabled: true, minTokens: 50000, budgetTokens: 250000 }
 }, result: undefined };
 pi.events.emit("pi-session-maintenance:control:v1", request);

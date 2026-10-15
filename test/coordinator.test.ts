@@ -136,6 +136,23 @@ test("full ownership re-admits prior limited automatic-repair blockers without d
   } finally { await f.close(); }
 });
 
+test("rotation shares ownership, idle, tool-pairing, workspace executor and settings gates without depending on model budget", async () => {
+  const f = await fixture({ memory: false, summary: false, config: { compaction: { enabled: false } } });
+  const peer = new Store(f.c.config.stateDir, f.c.now);
+  try {
+    assert.match(f.c.rotationBlocker()!, /idle interval/); f.advance(); assert.equal(f.c.rotationBlocker(), undefined);
+    f.idle = false; assert.match(f.c.rotationBlocker()!, /foreground/); f.idle = true;
+    peer.claim("executor:" + f.dir); assert.match(f.c.rotationBlocker()!, /executor/); peer.release("executor:" + f.dir);
+    f.ctx.mode = "tui"; f.ctx.ui.getEditorText = () => "unfinished draft"; assert.match(f.c.rotationBlocker()!, /draft/);
+    f.ctx.ui.getEditorText = () => "";
+    f.ctx.sessionManager.getBranch = () => [{ type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "pending", name: "read", arguments: {} }] } }];
+    assert.match(f.c.rotationBlocker()!, /unresolved/); f.ctx.sessionManager.getBranch = () => f.entries;
+    f.store.account(f.c.config.dailyBudget); assert.equal(f.c.rotationBlocker(), undefined);
+    const lease = f.c.prepareRotation()!; assert.ok(lease); assert.equal(lease.check(), undefined); assert.equal(f.c.prepareRotation(), undefined);
+    f.c.activity(); assert.match(lease.check()!, /activity changed/); lease.release(); lease.release();
+  } finally { peer.close(); await f.close(); }
+});
+
 test("missing optional packages skip their stages; archives never compact", async () => {
   const f = await fixture({ memory: false });
   try {

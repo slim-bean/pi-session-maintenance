@@ -4,12 +4,13 @@ Read README.md. Capability-driven maintenance, not a browser or knowledge implem
 
 - Never launch an authenticated pi or read auth.json in tests. All model tests use fake registries.
 - Loading the package authorizes configured autonomous maintenance; defaults apply only while pi is open. memoryOwnership limited/full is standing policy: explicit config > PI_MEMORY_OWNERSHIP > limited everywhere. Keep platform-specific defaults/detection in host adapters, never these extensions. Capture environment-default provenance at load; do not infer authenticated identity or an OS boundary. Full requires ownershipProtocol:1; never silently use a limited adapter.
-- Source conversations are read-only except native compaction of the current owned session.
+- Source conversation history is read-only except native compaction. Opt-in daily rotation may append date-name/custom metadata and use native newSession; never rewrite/delete prior entries or synthesize a chat prompt. Keep departing sessions queued for archive review/summary.
 - All branches belong in knowledge/search inputs. Do not treat off-branch as rejected.
 - SQLite holds queue, receipts, controls, spend and advisory ownership. Never steal live/foreign owners based on age.
 - Same-cwd participants publish busy state and interruption counters; poll them even during a running job. Keep progress visible and leases held until real stop.
 - Pin default maintenance models per session; only explicit settings/policy changes invalidate fresh model-keyed work.
 - Native compaction is active-owner-only, checks file/in-memory agreement and compaction-aware tool pairing, and has a cooperative abort watchdog (never kill pi).
+- `rotation.ts`: sessionRotation defaults off, UTC calendar with local/IANA overrides. YYYY-MM-DD names, monotonic calendar catch-up, native parent lineage, no model call. Gate on ownership/executor, idle, tools, saved/in-memory agreement, drafts, holds and monitor. Queue token-bound commands outside tick/lifecycle callbacks; switching while tick drains deadlocks teardown. Use fresh withSession contexts only; preserve runtime settings without overriding fresh host/workspace settings. Veto/failure retries back off. Dispose timers/tickets on reload/shutdown.
 - Use documented versioned event contracts; no imports of sibling projects' private modules.
 - Foreground input cancels background calls. Retain leases until operations have actually stopped.
 - modelTimeoutSeconds is a whole-number 1–3600s per-call/compaction deadline (default

@@ -53,7 +53,7 @@ function tokenCount(value: string): number {
 }
 /** Draft-only menu. Esc/Cancel discards; caller owns guarded persistence/application. */
 export async function editSettings(ctx: ExtensionContext, current: Config, assertCurrent: () => void): Promise<Config | undefined> {
-  let draft: Config = { ...current, compaction: { ...current.compaction } };
+  let draft: Config = { ...current, compaction: { ...current.compaction }, sessionRotation: { ...current.sessionRotation } };
   while (true) {
     assertCurrent();
     const options = [
@@ -69,6 +69,8 @@ export async function editSettings(ctx: ExtensionContext, current: Config, asser
       { key: "summaryModel", label: `Summary model: ${draft.summaryModel ?? "automatic (pinned per session)"}` },
       { key: "dailyBudget", label: `Daily model budget: ${money(draft.dailyBudget)} (approx.)` },
       { key: "maxCostPerCycle", label: `Budget per opportunity: ${money(draft.maxCostPerCycle)} (approx.)` },
+      { key: "sessionRotation", label: `Daily session rotation: ${enabled(draft.sessionRotation.enabled)}` },
+      { key: "rotationTimeZone", label: `Rotation calendar time zone: ${draft.sessionRotation.timeZone}` },
       { key: "compaction", label: `Maintenance compaction: ${enabled(draft.compaction.enabled)}` },
       { key: "minTokens", label: `Idle compaction floor: ${draft.compaction.minTokens.toLocaleString()} tokens` },
       { key: "budgetTokens", label: `Between-turn context budget: ${draft.compaction.budgetTokens?.toLocaleString() ?? "off"}` },
@@ -85,7 +87,7 @@ export async function editSettings(ctx: ExtensionContext, current: Config, asser
     if (!key || key === "cancel") return undefined;
     if (key === "save") return parseConfig(draft, ctx.cwd);
     if (key === "storage") { ctx.ui.notify("State location changes require editing maintenance.json and reloading. No files were moved.", "info"); continue; }
-    const next: Config = { ...draft, compaction: { ...draft.compaction } };
+    const next: Config = { ...draft, compaction: { ...draft.compaction }, sessionRotation: { ...draft.sessionRotation } };
     try {
       if (["enabled", "knowledge", "upgrades", "summaries", "push", "modelTranscripts"].includes(key)) {
         const flag = key as "enabled" | "knowledge" | "upgrades" | "summaries" | "push" | "modelTranscripts";
@@ -108,6 +110,11 @@ export async function editSettings(ctx: ExtensionContext, current: Config, asser
           assertCurrent(); if (email === undefined) continue;
           next.memoryGitIdentity = { name: name.trim(), email: email.trim() };
         }
+      } else if (key === "sessionRotation") next.sessionRotation.enabled = !next.sessionRotation.enabled;
+      else if (key === "rotationTimeZone") {
+        const zone = await ctx.ui.input("Calendar time zone (UTC, local, or IANA name such as America/New_York)", draft.sessionRotation.timeZone);
+        assertCurrent(); if (zone === undefined) continue;
+        next.sessionRotation.timeZone = zone.trim();
       } else if (key === "compaction") next.compaction.enabled = !next.compaction.enabled;
       else if (key === "reviewModel" || key === "summaryModel") {
         const choice = await chooseModel(ctx, key === "reviewModel" ? "Knowledge review model" : "Session summary model", assertCurrent);
