@@ -1,6 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { join, resolve } from "node:path";
 import { existsSync, realpathSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { describeConfigSource, type Config, type ConfigSource } from "./config.ts";
 import { hash, projectEntries, snapshot, type Snapshot } from "./source.ts";
 import { discover, invoke, type Bus, type TaskRequest } from "./protocol.ts";
@@ -11,10 +12,12 @@ import { classify, groupedIssues, isBinaryIssue, maintenanceIssue } from "./issu
 import { RunLog, type ModelEvent } from "./runs.ts";
 import { hostname } from "node:os";
 import { safeText } from "./text.ts";
+import { SnapshotCache } from "./snapshot-cache.ts";
 
 type Stage = "upgrade" | "review" | "summary" | "push" | "compact";
 export class Coordinator {
   private ctx?: ExtensionContext;
+  private snapshots = new SnapshotCache();
   private current?: string;
   private lastActivity: number;
   private force = false;
@@ -25,6 +28,8 @@ export class Coordinator {
   private footerState?: FooterState;
   private frame = 0;
   private tickRunning = false;
+  private nextInspection = 0;
+  private inspectedFingerprint?: string;
   private generation = 0;
   private closed = false;
   private closing?: Promise<void>;
@@ -42,6 +47,7 @@ export class Coordinator {
     if (configSource) this.configSource = configSource;
     this.generation++;
     await this.cancel("Session changed or maintenance runtime reinitialized");
+    this.snapshots.clear();
     if (this.current) {
       if (existsSync(this.current)) this.store.observe(snapshot(this.current));
       this.store.release("session:" + this.current);
@@ -131,7 +137,18 @@ export class Coordinator {
       }
       if (this.localHolds || !this.ctx.isIdle() || this.ctx.hasPendingMessages() || this.store.otherBusy(this.ctx.cwd) || (!this.idle() && !this.budgetDue())) return;
       if (!existsSync(this.current)) { this.progress = "waiting for a saved conversation"; return; }
-      const s = snapshot(this.current); const activeRecord = this.store.observe(s);
+      // Heartbeats/foreground admission still run every poll. Expensive adapter
+      // status and full transcript scans need not repeat for unchanged sources.
+      const inspectionFingerprint = hash([this.config, this.current, this.ctx.model?.provider, this.ctx.model?.id,
+        await Promise.all(this.store.records(this.ctx.cwd).map(async record => {
+          try { const s = await stat(record.path); return [record.path, s.dev, s.ino, s.size, s.mtimeMs, s.ctimeMs]; }
+          catch { return [record.path, "unavailable"]; }
+        }))]);
+      if (!this.force && this.now() < this.nextInspection && this.inspectedFingerprint === inspectionFingerprint) return;
+      if (generation !== this.generation || this.closed || !this.idle() && !this.budgetDue()) return;
+      const s = await this.snapshots.read(this.current);
+      if (generation !== this.generation || this.closed || !this.enabled() || !this.idle() && !this.budgetDue()) return;
+      const activeRecord = this.store.observe(s);
       this.footerError = false;
       if (!this.store.claim("executor:" + this.ctx.cwd)) { this.progress = "another maintenance executor is active"; this.render(); return; }
       try {
@@ -152,7 +169,8 @@ export class Coordinator {
           if (this.closed || !this.idle() || !this.enabled()) break;
           let source: Snapshot;
           try {
-            source = snapshot(record.path);
+            source = await this.snapshots.read(record.path);
+            if (generation !== this.generation || this.closed || !this.idle() || !this.enabled()) return;
             if (source.cwd !== this.ctx.cwd) throw new Error("Saved-session working directory changed; refused out-of-scope maintenance");
           }
           catch (error) {
@@ -262,6 +280,8 @@ export class Coordinator {
         const groups = this.issueGroups(this.store.records(this.ctx.cwd));
         this.progress = groups.length ? `${groups.length} distinct maintenance issue(s); /maintenance status` : "up to date";
         this.force = false;
+        this.inspectedFingerprint = inspectionFingerprint;
+        this.nextInspection = this.now() + 60_000;
       } finally { this.store.release("executor:" + this.ctx.cwd); this.render(); }
     } finally { this.tickRunning = false; this.render(); }
   }
@@ -627,6 +647,7 @@ export class Coordinator {
   }
   private async closeOnce() {
     this.closed = true;
+    this.snapshots.clear();
     clearInterval(this.timer); this.timer = undefined;
     clearInterval(this.animation); this.animation = undefined;
     await this.cancel("Maintenance runtime shutting down or reloading");

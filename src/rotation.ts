@@ -63,9 +63,15 @@ export class DailyRotation {
     const b = this.binding();
     if (!b || !b.coordinator.config.sessionRotation.enabled || this.now() < this.retryAt) return false;
     try {
+      const { day, today, startedAt, record } = this.plan(b);
+      // With an already adopted name/calendar there is no action to admit.
+      // Avoid fresh disk + in-memory transcript hashing on every same-day poll.
+      if (record && record.timeZone === b.coordinator.config.sessionRotation.timeZone &&
+          b.context.sessionManager.getSessionName() === day && today <= day) {
+        this.message = `current daily session: ${day}`; return false;
+      }
       const blocked = b.monitorOpen ? "maintenance monitor is open" : b.coordinator.rotationBlocker();
       if (blocked) { this.message = blocked; return false; }
-      const { day, today, startedAt, record } = this.plan(b);
       if (!record || record.timeZone !== b.coordinator.config.sessionRotation.timeZone) {
         const previousName = b.context.sessionManager.getSessionName();
         this.pi.appendEntry(ROTATION_ENTRY, { day, timeZone: b.coordinator.config.sessionRotation.timeZone, startedAt, previousName });

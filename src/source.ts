@@ -15,7 +15,11 @@ const timestamp = (value: unknown): number | null => {
 export function snapshot(path: string): Snapshot {
   path = realpathSync(path);
   if (statSync(path).size > 128 * 1024 * 1024) throw new Error("Session exceeds the 128MiB source budget");
-  const raw = readFileSync(path, "utf8");
+  return parseSnapshot(path, readFileSync(path, "utf8"));
+}
+
+/** Shared parser; callers must enforce the source budget and stable-file checks. */
+export function parseSnapshot(path: string, raw: string): Snapshot {
   const lines = raw.split("\n").filter((line) => line.trim());
   const header = JSON.parse(lines.shift() ?? "");
   if (header?.type !== "session" || typeof header.cwd !== "string" || typeof header.id !== "string") throw new Error("Invalid pi session header");

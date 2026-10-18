@@ -8,6 +8,15 @@ Read README.md. Capability-driven maintenance, not a browser or knowledge implem
 - All branches belong in knowledge/search inputs. Do not treat off-branch as rejected.
 - SQLite holds queue, receipts, controls, spend and advisory ownership. Never steal live/foreign owners based on age.
 - Same-cwd participants publish busy state and interruption counters; poll them even during a running job. Keep progress visible and leases held until real stop.
+- Unchanged idle full inspections are capped at 60 seconds, independently of heartbeat
+  polls. Async source metadata plus config/model/queue changes invalidate that gate;
+  forced runs bypass it. External corpus/Git changes are eventually rechecked within
+  one minute. Never cache mutation admission, source assertions or commit proof.
+- `snapshot-cache.ts` is read-only scheduler discovery only: bounded immutable
+  projections, canonical identity/size/mtimeNs/ctimeNs invalidation, stable-read
+  checks, clear on attach/shutdown. Never use it in assertSource, compaction or
+  actual rotation admission. Same-day rotation polls may skip expensive guards
+  only if neither metadata/name changes nor rotation are needed.
 - Pin default maintenance models per session; only explicit settings/policy changes invalidate fresh model-keyed work.
 - Native compaction is active-owner-only, checks file/in-memory agreement and compaction-aware tool pairing, and has a cooperative abort watchdog (never kill pi).
 - `rotation.ts`: sessionRotation defaults off, UTC calendar with local/IANA overrides. YYYY-MM-DD names, monotonic calendar catch-up, native parent lineage, no model call. Gate on ownership/executor, idle, tools, saved/in-memory agreement, drafts, holds and monitor. Queue token-bound commands outside tick/lifecycle callbacks; switching while tick drains deadlocks teardown. Use fresh withSession contexts only; preserve runtime settings without overriding fresh host/workspace settings. Veto/failure retries back off. Dispose timers/tickets on reload/shutdown.

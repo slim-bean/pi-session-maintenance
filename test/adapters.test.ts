@@ -83,7 +83,8 @@ for (const memoryOwnership of ["limited", "full"] as const) test(`real package a
       // An independently broken corpus must heal even when source coverage is
       // already fresh; corpus fingerprints re-admit validation without re-extraction.
       execFileSync(binary, ["update", "source", bundle, "--body", "See [target](wrong.md) for the rationale."]);
-      clock += 2000; await coordinator.tick(); await coordinator.tick();
+      // External corpus changes are rediscovered at the bounded idle inspection interval.
+      clock += 61_000; await coordinator.tick(); await coordinator.tick();
       assert.equal(calls, expected + 2);
       assert.match((await import("node:fs")).readFileSync(join(bundle, "source.md"), "utf8"), /\[target\]\(target.md\)/);
       assert.ok(store.get(path)!.review); assert.equal(execFileSync("git", ["-C", bundle, "status", "--porcelain"], { encoding: "utf8" }), "");

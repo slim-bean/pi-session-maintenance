@@ -28,6 +28,11 @@ Optional dependencies are separate packages, not bundled or auto-installed:
 - Updated **pi-session-search** (not pi-search): summary adapter and existing cache.
 - Native pi compaction needs no extra package.
 
+**Release 0.6.0** reduces idle overhead with bounded snapshot reuse, a one-minute
+unchanged-source inspection interval, and a same-day rotation fast path. Source
+freshness, cancellation and actual rotation/compaction safety checks stay intact.
+Pair with pi-okf-agent-memory 0.7.0 for non-blocking maintenance status checks.
+
 **Release 0.5.0** adds opt-in daily session rotation, limited/full memory ownership
 with autonomous recovery coordination, and a `maxRetries` limit (default 10) that
 parks repeatedly failing jobs instead of retrying them forever. Pair with
@@ -48,6 +53,25 @@ Missing packages are skipped. Older installed versions without adapters fail wit
 update advice. Never load local and Git copies of the same extension together.
 Prepare the intended OKF bundle/Git identity through existing setup/provisioning;
 maintenance never invents author identity, signing, credentials, or a remote.
+
+## Idle performance
+
+Heartbeat, cancellation and ownership polling keep the configured `pollSeconds`
+cadence. Full transcript/adapter inspections of unchanged idle sessions are
+limited to once per minute. Source metadata, queue, configuration or model
+changes invalidate that gate; explicit manual runs bypass it. External corpus
+or Git changes are rediscovered within a minute. No status result is reused as
+mutation/commit proof: actual operations retain their fresh source, ownership,
+validation and finalization checks. No schema or knowledge upgrade is required.
+
+Read-only scheduler snapshots reuse immutable parsed projections when canonical
+file identity, size and nanosecond modification/change times are unchanged.
+Reads use asynchronous filesystem I/O; the cache is limited to 16 entries and
+8 MiB of serialized projections, and is cleared on session attach/shutdown.
+Changed, corrupt, unstable or oversized sources are never silently treated as
+fresh. Mutation/compaction freshness guards still read the actual source.
+Daily rotation skips transcript-based admission checks when the date/name are
+already current; naming changes and actual rotation still run fresh safety gates.
 
 ## Settings
 

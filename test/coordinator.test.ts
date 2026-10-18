@@ -54,6 +54,22 @@ async function fixture(options: any = {}) {
     advance(ms = 2000) { clock += ms; }, async close() { await c.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
 
+test("unchanged idle sources avoid repeated adapter status, but source/config changes and expiry recheck", async () => {
+  const f = await fixture({ upgraded: true, summary: false, config: { knowledge: false, compaction: { enabled: false } } });
+  let status = 0;
+  const emit = f.bus.emit.bind(f.bus);
+  f.bus.emit = (channel, request) => { if (request.operation === "status") status++; return emit(channel, request); };
+  try {
+    f.advance(); await f.c.tick(); assert.equal(status, 1);
+    for (let i = 0; i < 10; i++) { f.advance(); await f.c.tick(); }
+    assert.equal(status, 1);
+    f.entries.push({ type: "message", message: { role: "user", content: "changed source" } });
+    f.save(); await f.c.tick(); assert.equal(status, 2);
+    f.c.config.push = true; await f.c.tick(); assert.equal(status, 3);
+    f.advance(61000); await f.c.tick(); assert.equal(status, 4);
+  } finally { await f.close(); }
+});
+
 test("compaction watchdog uses the configured deadline and reports timeout instead of a generic provider abort", async () => {
   const f = await fixture({ memory: false, summary: false, config: { modelTimeoutSeconds: 1, compaction: { enabled: true, minTokens: 0 } } });
   const keepAlive = setTimeout(() => {}, 2000);

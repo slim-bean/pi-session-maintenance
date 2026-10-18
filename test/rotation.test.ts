@@ -50,6 +50,21 @@ function fixture() {
     close() { rotator.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
 
+test("same-day polls skip expensive admission but a day change still rechecks it", () => {
+  const f = fixture();
+  let checks = 0;
+  const original = f.coordinator.rotationBlocker;
+  f.coordinator.rotationBlocker = () => { checks++; return original(); };
+  try {
+    f.rotator.poll(); assert.equal(checks, 1);
+    for (let i=0;i<100;i++) f.rotator.poll();
+    assert.equal(checks, 1); assert.equal(f.commands.length, 0);
+    f.blocked = "foreground work"; f.advance(20_000);
+    assert.equal(f.rotator.poll(), false); assert.equal(checks, 2);
+    assert.equal(f.held, false); assert.equal(f.commands.length, 0);
+  } finally { f.close(); }
+});
+
 test("daily dates are stable across UTC, local calendars and DST boundaries", () => {
   assert.equal(dateName(Date.parse("2026-10-14T00:15:00Z"), "UTC"), "2026-10-14");
   assert.equal(dateName(Date.parse("2026-10-14T00:15:00Z"), "America/New_York"), "2026-10-13");
