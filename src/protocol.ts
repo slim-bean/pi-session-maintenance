@@ -7,7 +7,7 @@ export interface Outcome { key: string; complete?: boolean; available?: boolean;
 export interface TaskRequest {
   protocol: 1; operation: "status" | "upgrade" | "review" | "push" | "run";
   context: ExtensionContext; cwd: string; path: string; sourceHash: string; source: Snapshot;
-  model?: string; modelTimeoutMs?: number; workDir: string; maxCost: number; signal: AbortSignal;
+  model?: string; modelTimeoutMs?: number; recoveryMaxTurns?: number; workDir: string; maxCost: number; signal: AbortSignal;
   memoryOwnership?: "limited" | "full"; memoryGitIdentity?: { name: string; email: string }; modelTranscripts?: boolean;
   assertSource(): void; onUsage(usage: any): void; onProgress(text: string): void;
   onModelEvent?: (event: ModelEvent) => void;

@@ -93,6 +93,7 @@ export function formatStatus(status: Status & { sessionRotation?: { pending: boo
     `Session maintenance · ${mode}`, `State: ${state}`, `Owner: ${owner}`,
     `Stages: ${stages.join(" · ")}`,
     `Memory ownership: ${cfg.memoryOwnership === "full" ? "full — agent-owned recovery; no human approval" : "limited — structural repair"}`,
+    `Recovery turn limit: ${cfg.recoveryMaxTurns} model turns per opportunity (cost budgets still apply)`,
     `Schedule: after ${timeSpan(cfg.idleSeconds)} idle · check every ${timeSpan(cfg.pollSeconds)}`,
     `Daily session rotation: ${cfg.sessionRotation.enabled ? `on · YYYY-MM-DD · ${cfg.sessionRotation.timeZone}${status.sessionRotation?.progress ? ` · ${clean(status.sessionRotation.progress)}` : ""}` : "off"}`,
     `Model call / compaction timeout: ${timeSpan(cfg.modelTimeoutSeconds)} · automatic retries: up to ${cfg.maxRetries} per failing job`,
@@ -124,7 +125,7 @@ export function formatStatus(status: Status & { sessionRotation?: { pending: boo
       for (const action of guidance.actions.slice(0, 6)) lines.push(`    ${clean(action, 400)}`);
       if (guidance.actions.length > 6) lines.push("    More findings remain in memory_validate.");
       const modelWork = [...g.stages].some((stage) => stage !== "push" && stage !== "source");
-      if (parked) lines.push(`  Automatic retry: stopped after ${g.attempts} unsuccessful checks (limit: ${cfg.maxRetries} retries). Resumes when the conversation changes, the stage's model/timeout/ownership settings change, or maxRetries is raised.`);
+      if (parked) lines.push(`  Automatic retry: stopped after ${g.attempts} unsuccessful checks (limit: ${cfg.maxRetries} retries). Resumes when the conversation changes, the stage's model/timeout/ownership/recovery-limit settings change, or maxRetries is raised.`);
       else if (off) lines.push("  Automatic retry: paused while maintenance is off; /maintenance on enables it.");
       else if (suspended) lines.push(`  Automatic retry: after the pause ends (${timeSpan((status.control!.paused_until - now) / 1000)}), at a safe idle window.`);
       else if (modelWork && status.spentToday >= cfg.dailyBudget) lines.push("  Automatic retry: after the UTC daily budget resets (or an approved budget increase), at safe idle.");
@@ -170,6 +171,7 @@ export function formatSettings(cfg: Config, cwd: string): string {
     `Enabled: ${onOff(cfg.enabled)} · Idle delay: ${timeSpan(cfg.idleSeconds)} · Poll interval: ${timeSpan(cfg.pollSeconds)}`,
     `OKF upgrades: ${onOff(cfg.upgrades)} · Knowledge review: ${onOff(cfg.knowledge)} · Search summaries: ${onOff(cfg.summaries)}`,
     `Memory ownership: ${cfg.memoryOwnership === "full" ? "full — autonomous tool-capable recovery" : "limited — structural repair only"}`,
+    `Recovery turn limit: ${cfg.recoveryMaxTurns} model turns per opportunity (cost budgets still apply)`,
     `Memory Git identity: ${cfg.memoryGitIdentity ? clean(`${cfg.memoryGitIdentity.name} <${cfg.memoryGitIdentity.email}>`) : "existing Git configuration (no invented identity)"}`,
     `Review model: ${cfg.reviewModel ? clean(cfg.reviewModel) : "automatic (pinned per session)"}`,
     `Summary model: ${cfg.summaryModel ? clean(cfg.summaryModel) : "automatic (pinned per session)"}`,

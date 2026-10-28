@@ -27,7 +27,7 @@ test("interactive settings edit a draft and save validated workspace values atom
   const dir = mkdtempSync(join(tmpdir(), "maintenance-settings-"));
   try {
     const cfg = parseConfig({}, dir);
-    const h = ui(dir, ["Idle delay:", "Model call / compaction timeout:", "Automatic retry limit:", "Review model:", "local/worker", "Maintenance compaction:", "Between-turn context budget:", "Daily model budget:", "Memory ownership:", "full", "Memory Git identity:", "Save & apply"], ["30m", "20m", "3", "200k", "$2.50", "Authorized Agent", "agent@example.invalid"]);
+    const h = ui(dir, ["Idle delay:", "Model call / compaction timeout:", "Automatic retry limit:", "Recovery turn limit:", "Review model:", "local/worker", "Maintenance compaction:", "Between-turn context budget:", "Daily model budget:", "Memory ownership:", "full", "Memory Git identity:", "Save & apply"], ["30m", "20m", "3", "75", "200k", "$2.50", "Authorized Agent", "agent@example.invalid"]);
     const result = await editSettings(h.ctx, cfg, () => {});
     assert.ok(result); assert.equal(result.idleSeconds, 1800); assert.equal(result.reviewModel, "local/worker");
     assert.equal(result.modelTimeoutSeconds, 1200); assert.equal(result.maxRetries, 3); assert.equal(cfg.maxRetries, 10);
@@ -38,6 +38,11 @@ test("interactive settings edit a draft and save validated workspace values atom
     assert.equal(persisted.idleSeconds, 1800); assert.equal(persisted.reviewModel, "local/worker");
     assert.equal(cfg.idleSeconds, 600); assert.equal(cfg.compaction.enabled, false); assert.equal(cfg.modelTimeoutSeconds, 600);
     assert.equal(persisted.modelTimeoutSeconds, 1200);
+    assert.equal(result.recoveryMaxTurns, 75); assert.equal(persisted.recoveryMaxTurns, 75);
+    assert.equal(cfg.recoveryMaxTurns, 50);
+    for (const value of [0, -1, 101, 1.5, "50", true, Infinity]) assert.throws(() => parseConfig({ recoveryMaxTurns: value }, dir), /recoveryMaxTurns/);
+    assert.equal(parseConfig({ recoveryMaxTurns: 1 }, dir).recoveryMaxTurns, 1);
+    assert.equal(parseConfig({ recoveryMaxTurns: 100 }, dir).recoveryMaxTurns, 100);
     assert.equal(persisted.memoryOwnership, "full"); assert.deepEqual(persisted.memoryGitIdentity, { name: "Authorized Agent", email: "agent@example.invalid" });
     assert.equal(cfg.memoryOwnership, "limited"); assert.equal(cfg.memoryGitIdentity, undefined);
     for (const value of [0, -1, 3601, 1.5, "600"]) assert.throws(() => parseConfig({ modelTimeoutSeconds: value }, dir), /modelTimeoutSeconds/);

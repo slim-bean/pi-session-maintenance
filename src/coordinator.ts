@@ -289,7 +289,7 @@ export class Coordinator {
     let cycleCost = 0;
     return {
       protocol: 1, operation, context: this.ctx!, cwd: s.cwd, path: s.path, sourceHash: s.hash, source: s,
-      workDir: join(this.config.stateDir, "work"), model, modelTimeoutMs: this.config.modelTimeoutSeconds * 1000,
+      workDir: join(this.config.stateDir, "work"), model, modelTimeoutMs: this.config.modelTimeoutSeconds * 1000, recoveryMaxTurns: this.config.recoveryMaxTurns,
       memoryOwnership: this.config.memoryOwnership, memoryGitIdentity: this.config.memoryGitIdentity, modelTranscripts: this.config.modelTranscripts,
       maxCost: Math.min(this.config.maxCostPerCycle, Math.max(0, this.config.dailyBudget - this.store.spent())), signal,
       assertSource: () => {
@@ -436,7 +436,7 @@ export class Coordinator {
     const c = this.config;
     return JSON.stringify(stage === "summary" ? [c.summaryModel ?? record.summaryModel, c.modelTimeoutSeconds] :
       stage === "compact" ? [c.compaction, c.modelTimeoutSeconds] :
-      [c.reviewModel ?? record.reviewModel, c.modelTimeoutSeconds, c.memoryOwnership, c.memoryGitIdentity ?? null]);
+      [c.reviewModel ?? record.reviewModel, c.modelTimeoutSeconds, c.memoryOwnership, c.memoryGitIdentity ?? null, c.recoveryMaxTurns]);
   }
   /** Parked: automatic retries exhausted under unchanged settings. Source edits clear issues (Store.observe);
    * /maintenance retry clears the park for one more attempt; raising maxRetries re-admits too. */

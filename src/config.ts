@@ -9,6 +9,8 @@ export interface Config {
   maxCostPerCycle: number; dailyBudget: number; modelTimeoutSeconds: number;
   /** Automatic retries of one failing error/blocked job before it parks (deferrals never count). */
   maxRetries: number;
+  /** Maximum model responses per full-memory recovery opportunity (1–100). */
+  recoveryMaxTurns: number;
   compaction: { enabled: boolean; minTokens: number; budgetTokens?: number };
   sessionRotation: { enabled: boolean; timeZone: string };
   push: boolean;
@@ -36,7 +38,7 @@ function keys(raw: Record<string, unknown>, allowed: string[], name: string) {
 export function parseConfig(raw: unknown, cwd: string): Config {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("maintenance config must be an object");
   const r = raw as Record<string, any>;
-  keys(r, ["enabled", "idleSeconds", "pollSeconds", "knowledge", "summaries", "upgrades", "reviewModel", "summaryModel", "maxCostPerCycle", "dailyBudget", "compaction", "push", "modelTranscripts", "modelTimeoutSeconds", "maxRetries", "memoryOwnership", "memoryGitIdentity", "sessionRotation", "stateDir"], "maintenance");
+  keys(r, ["enabled", "idleSeconds", "pollSeconds", "knowledge", "summaries", "upgrades", "reviewModel", "summaryModel", "maxCostPerCycle", "dailyBudget", "compaction", "push", "modelTranscripts", "modelTimeoutSeconds", "maxRetries", "recoveryMaxTurns", "memoryOwnership", "memoryGitIdentity", "sessionRotation", "stateDir"], "maintenance");
   for (const key of ["enabled", "knowledge", "summaries", "upgrades", "push", "modelTranscripts"]) {
     if (r[key] !== undefined && typeof r[key] !== "boolean") throw new Error(`${key} must be boolean`);
   }
@@ -73,6 +75,7 @@ export function parseConfig(raw: unknown, cwd: string): Config {
     reviewModel: r.reviewModel, summaryModel: r.summaryModel,
     modelTimeoutSeconds: positive(nonnegative(r.modelTimeoutSeconds ?? 600, "modelTimeoutSeconds"), "modelTimeoutSeconds", 3600),
     maxRetries: retries(r.maxRetries ?? DEFAULT_MAX_RETRIES),
+    recoveryMaxTurns: positive(nonnegative(r.recoveryMaxTurns ?? 50, "recoveryMaxTurns"), "recoveryMaxTurns", 100),
     maxCostPerCycle: positive(r.maxCostPerCycle ?? 0.5, "maxCostPerCycle", 1000),
     dailyBudget: positive(r.dailyBudget ?? 5, "dailyBudget", 10000), push: r.push ?? false, modelTranscripts: r.modelTranscripts ?? true,
     compaction: { enabled: c.enabled ?? false, minTokens: nonnegative(c.minTokens ?? 50_000, "minTokens"),

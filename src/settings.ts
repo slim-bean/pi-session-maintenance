@@ -60,6 +60,7 @@ export async function editSettings(ctx: ExtensionContext, current: Config, asser
       { key: "enabled", label: `Configured enablement: ${enabled(draft.enabled)}` },
       { key: "idleSeconds", label: `Idle delay: ${timeSpan(draft.idleSeconds)}` },
       { key: "modelTimeoutSeconds", label: `Model call / compaction timeout: ${timeSpan(draft.modelTimeoutSeconds)}` },
+      { key: "recoveryMaxTurns", label: `Recovery turn limit: ${draft.recoveryMaxTurns} per opportunity` },
       { key: "maxRetries", label: `Automatic retry limit: ${draft.maxRetries} per failing job` },
       { key: "knowledge", label: `Knowledge review: ${enabled(draft.knowledge)}` },
       { key: "memoryOwnership", label: `Memory ownership: ${draft.memoryOwnership === "full" ? "full — autonomous recovery, no human approval" : "limited — structural repair only"}` },
@@ -117,7 +118,12 @@ export async function editSettings(ctx: ExtensionContext, current: Config, asser
         assertCurrent(); if (zone === undefined) continue;
         next.sessionRotation.timeZone = zone.trim();
       } else if (key === "compaction") next.compaction.enabled = !next.compaction.enabled;
-      else if (key === "maxRetries") {
+      else if (key === "recoveryMaxTurns") {
+        const text = await ctx.ui.input("Maximum model turns per full-memory recovery opportunity (1–100; cost budgets still apply)", String(draft.recoveryMaxTurns));
+        assertCurrent(); if (text === undefined) continue;
+        if (!/^\d+$/.test(text.trim())) throw new Error("Enter a whole number of recovery turns such as 50");
+        next.recoveryMaxTurns = Number(text.trim());
+      } else if (key === "maxRetries") {
         const text = await ctx.ui.input("Automatic retries before a failing job stops (0–1000; deferrals do not count)", String(draft.maxRetries));
         assertCurrent(); if (text === undefined) continue;
         if (!/^\d+$/.test(text.trim())) throw new Error("Enter a whole number of retries such as 10");

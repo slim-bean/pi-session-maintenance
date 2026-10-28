@@ -22,6 +22,7 @@ Read README.md. Capability-driven maintenance, not a browser or knowledge implem
 - `rotation.ts`: sessionRotation defaults off, UTC calendar with local/IANA overrides. YYYY-MM-DD names, monotonic calendar catch-up, native parent lineage, no model call. Gate on ownership/executor, idle, tools, saved/in-memory agreement, drafts, holds and monitor. Queue token-bound commands outside tick/lifecycle callbacks; switching while tick drains deadlocks teardown. Use fresh withSession contexts only; preserve runtime settings without overriding fresh host/workspace settings. Veto/failure retries back off. Dispose timers/tickets on reload/shutdown.
 - Use documented versioned event contracts; no imports of sibling projects' private modules.
 - Foreground input cancels background calls. Retain leases until operations have actually stopped.
+- recoveryMaxTurns is a whole-number 1–100 model-response cap per full recovery opportunity (default 50). Forward through host requests, include in memory-stage retry fingerprints, and preserve independent cost/deadline/cancellation gates.
 - modelTimeoutSeconds is a whole-number 1–3600s per-call/compaction deadline (default
   600s). Pass modelTimeoutMs to adapters, preserve the first abort signal's reason,
   and show elapsed/deadline/provider errors in history and session views. Never infer

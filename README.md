@@ -28,6 +28,12 @@ Optional dependencies are separate packages, not bundled or auto-installed:
 - Updated **pi-session-search** (not pi-search): summary adapter and existing cache.
 - Native pi compaction needs no extra package.
 
+**Release 0.7.0** adds `recoveryMaxTurns` (default 50, whole number 1–100)
+for full-memory recovery, with settings/status visibility and retry re-admission
+when the limit changes. Cost budgets, call deadlines and cancellation remain
+independent. Requires a pi-okf-agent-memory adapter implementing
+`recoveryMaxTurns`; older adapters ignore this field and retain their own turn cap.
+
 **Release 0.6.0** reduces idle overhead with bounded snapshot reuse, a one-minute
 unchanged-source inspection interval, and a same-day rotation fast path. Source
 freshness, cancellation and actual rotation/compaction safety checks stay intact.
@@ -94,6 +100,7 @@ Optional `.pi/maintenance.json` in the current working directory:
   "modelTranscripts": true,
   "modelTimeoutSeconds": 600,
   "maxRetries": 10,
+  "recoveryMaxTurns": 50,
   "sessionRotation": {
     "enabled": false,
     "timeZone": "UTC"
@@ -173,7 +180,7 @@ wait for a human. Publication still requires the separate push setting/request.
 
 Full recovery uses the existing registry and read/edit/write/shell tools. It
 persists cases, original-content checkpoints and execution evidence, checks source
-and bundle ownership, then requires actual validation/commit proof. Eight model
+and bundle ownership, then requires actual validation/commit proof. `recoveryMaxTurns` (default **50**, whole number **1–100**) limits model
 turns per opportunity and the existing approximate budget/deadline gates bound
 work; exhausted opportunities continue automatically. Failed ordinary extraction
 or oversized corpora can use an incremental tool-based review bound to the current
@@ -219,7 +226,7 @@ changing the ledger path requires reload. Existing workspace off/suspension over
 survive other settings edits; explicitly enabling a disabled configuration clears off.
 
 Normal extraction performs at most one new model-backed section/step per
-opportunity, then yields. Full recovery may use up to eight sequential model turns
+opportunity, then yields. Full recovery may use up to `recoveryMaxTurns` sequential model turns (default 50)
 within the same budget/deadline gates; no parallel repair agent is launched. Stages and summary calls are sequential (summary concurrency **1**).
 Daily spend is recorded separately from the foreground conversation, across
 instances sharing the state directory. Cost limits are **approximate**: an admitted

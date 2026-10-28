@@ -37,6 +37,7 @@ async function fixture(options: any = {}) {
     assert.deepEqual(r.memoryGitIdentity, options.config?.memoryGitIdentity);
     assert.equal(r.modelTranscripts, options.config?.modelTranscripts ?? true);
     assert.equal(r.modelTimeoutMs, (options.config?.modelTimeoutSeconds ?? 600) * 1000);
+    assert.equal(r.recoveryMaxTurns, options.config?.recoveryMaxTurns ?? 50);
     r.assertSource();
     r.result = Promise.resolve().then(() => {
       if (options.fail === r.operation) throw Object.assign(new Error("synthetic failure"), options.issue ?? {});
@@ -132,7 +133,7 @@ test("new repair authority re-admits legacy validation plans without receipts or
 test("full ownership requires an advertised compatible adapter; no silent limited fallback", async () => {
   for (const ownershipProtocol of [undefined, 1]) {
     const f = await fixture({ upgraded: true, summary: false, ownershipProtocol,
-      config: { memoryOwnership: "full", memoryGitIdentity: { name: "Authorized Agent", email: "agent@example.invalid" }, compaction: { enabled: false } } });
+      config: { recoveryMaxTurns: 75, memoryOwnership: "full", memoryGitIdentity: { name: "Authorized Agent", email: "agent@example.invalid" }, compaction: { enabled: false } } });
     try {
       f.advance(); await f.c.tick();
       if (ownershipProtocol === 1) assert.deepEqual(f.calls, ["review"]);
@@ -255,6 +256,22 @@ test("repeated failures park at maxRetries; settings changes, manual retry or ne
     f.entries.push({ type: "message", id: "b", parentId: "a", message: { role: "user", content: "new evidence" } });
     f.save(); f.advance(3600_000); await f.c.tick();
     assert.equal(reviews(), 6); assert.equal(f.store.get(f.path)!.errors!.review!.failures, 1);
+  } finally { await f.close(); }
+});
+
+test("changing recoveryMaxTurns re-admits a parked memory job without erasing failure history", async () => {
+  const options = { upgraded: true, summary: false, fail: "review", config: { maxRetries: 0, recoveryMaxTurns: 50, compaction: { enabled: false } } };
+  const f = await fixture(options);
+  try {
+    f.advance(); await f.c.tick();
+    assert.ok(f.store.get(f.path)!.errors!.review!.parked);
+    options.config.recoveryMaxTurns = 75;
+    await f.c.configure(parseConfig({ ...f.c.config, recoveryMaxTurns: 75 }, f.dir));
+    f.advance(3600_000); await f.c.tick();
+    assert.equal(f.calls.filter(c => c === "review").length, 2);
+    assert.equal(f.store.get(f.path)!.errors!.review!.attempts, 2);
+    f.advance(3600_000); await f.c.tick();
+    assert.equal(f.calls.filter(c => c === "review").length, 2);
   } finally { await f.close(); }
 });
 
