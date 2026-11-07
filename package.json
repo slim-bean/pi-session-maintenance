@@ -5,11 +5,39 @@
   "type": "module",
   "description": "Capability-driven idle session maintenance: memory, search summaries and optional compaction.",
   "license": "MIT",
-  "keywords": ["pi-package", "sessions", "maintenance"],
-  "engines": { "node": ">=22.18" },
-  "pi": { "extensions": ["./src/index.ts"] },
-  "scripts": { "test": "tsx --test test/*.test.ts", "typecheck": "scripts/typecheck.sh", "dev:link-host": "node scripts/link-host.mjs" },
-  "devDependencies": { "@types/node": "^24.0.0", "tsx": "^4.20.0", "typescript": "^5.9.0" },
-  "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*" },
-  "peerDependenciesMeta": { "@earendil-works/pi-coding-agent": { "optional": true }, "@earendil-works/pi-tui": { "optional": true } }
+  "keywords": [
+    "pi-package",
+    "sessions",
+    "maintenance"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "scripts/typecheck.sh",
+    "dev:link-host": "node scripts/link-host.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.20.0",
+    "typescript": "^7.0.2"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  }
 }
