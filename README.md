@@ -316,6 +316,8 @@ No model calls or source-file parsing happen to render the footer.
   current working directory. Deleted/corrupt sources are reported, never rewritten.
 - An idle owner can maintain an open conversation or work on its workspace backlog.
   Closing every participating pi instance stops work; opening pi resumes scheduling.
+- Saved queued archives can run even when a newly opened foreground session has
+  not been saved yet; no synthetic message/file or foreground compaction is needed.
 - Archives get knowledge review and summary only, **never background compaction**.
   Compaction is limited to the current owned, idle session and verifies that its
   in-memory conversation matches the file and no unresolved tool calls remain on

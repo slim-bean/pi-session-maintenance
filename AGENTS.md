@@ -4,6 +4,8 @@ Read README.md. Capability-driven maintenance, not a browser or knowledge implem
 
 - Never launch an authenticated pi or read auth.json in tests. All model tests use fake registries.
 - Loading the package authorizes configured autonomous maintenance; defaults apply only while pi is open. memoryOwnership limited/full is standing policy: explicit config > PI_MEMORY_OWNERSHIP > limited everywhere. Keep platform-specific defaults/detection in host adapters, never these extensions. Capture environment-default provenance at load; do not infer authenticated identity or an OS boundary. Full requires ownershipProtocol:1; never silently use a limited adapter.
+- Saved workspace backlog must remain runnable while the foreground session is
+  unsaved. Never create a synthetic source/receipt or compact an archive to unblock it.
 - Source conversation history is read-only except native compaction. Opt-in daily rotation may append date-name/custom metadata and use native newSession; never rewrite/delete prior entries or synthesize a chat prompt. Keep departing sessions queued for archive review/summary.
 - All branches belong in knowledge/search inputs. Do not treat off-branch as rejected.
 - SQLite holds queue, receipts, controls, spend and advisory ownership. Never steal live/foreign owners based on age.

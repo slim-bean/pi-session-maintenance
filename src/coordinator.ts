@@ -136,7 +136,9 @@ export class Coordinator {
         if (previous) this.ctx.ui.notify(`Maintenance owner PID ${previous.pid} stopped; this instance has taken over.`, "warning");
       }
       if (this.localHolds || !this.ctx.isIdle() || this.ctx.hasPendingMessages() || this.store.otherBusy(this.ctx.cwd) || (!this.idle() && !this.budgetDue())) return;
-      if (!existsSync(this.current)) { this.progress = "waiting for a saved conversation"; return; }
+      if (!existsSync(this.current) && !this.store.records(this.ctx.cwd).some(record => existsSync(record.path))) {
+        this.progress = "waiting for a saved conversation or queued backlog"; return;
+      }
       // Heartbeats/foreground admission still run every poll. Expensive adapter
       // status and full transcript scans need not repeat for unchanged sources.
       const inspectionFingerprint = hash([this.config, this.current, this.ctx.model?.provider, this.ctx.model?.id,
@@ -146,13 +148,15 @@ export class Coordinator {
         }))]);
       if (!this.force && this.now() < this.nextInspection && this.inspectedFingerprint === inspectionFingerprint) return;
       if (generation !== this.generation || this.closed || !this.idle() && !this.budgetDue()) return;
-      const s = await this.snapshots.read(this.current);
+      // A newly opened foreground session may not exist on disk yet. Its
+      // absence must not prevent maintenance of already-saved workspace archives.
+      const s = existsSync(this.current) ? await this.snapshots.read(this.current) : undefined;
       if (generation !== this.generation || this.closed || !this.enabled() || !this.idle() && !this.budgetDue()) return;
-      const activeRecord = this.store.observe(s);
+      const activeRecord = s ? this.store.observe(s) : undefined;
       this.footerError = false;
       if (!this.store.claim("executor:" + this.ctx.cwd)) { this.progress = "another maintenance executor is active"; this.render(); return; }
       try {
-        if (this.budgetDue() && this.due(activeRecord, "compact") &&
+        if (s && activeRecord && this.budgetDue() && this.due(activeRecord, "compact") &&
             (activeRecord.compact?.hash !== s.hash || activeRecord.compact.key !== this.compactKey())) {
           await this.execute("compact", s, undefined, cancelSeq);
           return;
@@ -525,7 +529,7 @@ export class Coordinator {
     const blocker = !this.config.enabled || c.disabled ? "maintenance is off; use /maintenance on" :
       c.paused_until > this.now() ? "workspace is suspended; use /maintenance resume" :
       this.localHolds ? "the settings editor holds maintenance" :
-      !this.current || !existsSync(this.current) ? "there is no saved conversation to maintain" :
+      !this.current || (!existsSync(this.current) && !this.store.records(this.ctx.cwd).some(record => existsSync(record.path))) ? "there is no saved conversation or queued backlog to maintain" :
       owner ? `PID ${owner.pid} owns this session; run the command in that window` :
       this.running ? `${this.running.stage} is already running; use /maintenance watch` :
       this.tickRunning ? "a maintenance admission check is already in progress" :

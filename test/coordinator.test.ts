@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtempSync, writeFileSync, rmSync, readFileSync, realpathSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readFileSync, realpathSync, unlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Coordinator } from "../src/coordinator.ts";
@@ -54,6 +54,42 @@ async function fixture(options: any = {}) {
     set idle(v: boolean) { idle = v; }, set pending(v: boolean) { pending = v; }, set tokens(v: number) { tokens = v; },
     advance(ms = 2000) { clock += ms; }, async close() { await c.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
+
+test("an unsaved foreground session can maintain saved backlog without saving or compacting itself", async () => {
+  for (const manual of [false, true]) {
+    const f = await fixture({ upgraded: true });
+    try {
+      const archive = join(f.dir, "archive.jsonl"); f.save(archive); f.c.enqueue(archive);
+      unlinkSync(f.path); f.entries.length = 0;
+      if (manual) {
+        assert.match(await f.c.runNow(), /Started review/);
+        await new Promise(resolve => setTimeout(resolve, 10));
+      } else {
+        await f.c.tick(); assert.deepEqual(f.calls, []);
+        f.advance(); await f.c.tick();
+      }
+      assert.deepEqual(f.calls, ["review"]);
+      assert.ok(f.store.get(archive)!.review);
+      f.advance(); await f.c.tick();
+      assert.deepEqual(f.calls, ["review", "run"]);
+      assert.ok(f.store.get(archive)!.summary);
+      await f.c.tick();
+      assert.equal(existsSync(f.path), false);
+      assert.equal(f.store.get(f.path)!.review, undefined);
+      assert.ok(!f.calls.includes("compact"));
+    } finally { await f.close(); }
+  }
+});
+
+test("an unsaved session with no saved backlog reports no work without creating a source", async () => {
+  const f = await fixture();
+  try {
+    unlinkSync(f.path); f.entries.length = 0;
+    assert.match(await f.c.runNow(), /no saved conversation or queued backlog/);
+    f.advance(); await f.c.tick();
+    assert.deepEqual(f.calls, []); assert.equal(existsSync(f.path), false);
+  } finally { await f.close(); }
+});
 
 test("unchanged idle sources avoid repeated adapter status, but source/config changes and expiry recheck", async () => {
   const f = await fixture({ upgraded: true, summary: false, config: { knowledge: false, compaction: { enabled: false } } });
