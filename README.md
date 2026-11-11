@@ -28,6 +28,10 @@ Optional dependencies are separate packages, not bundled or auto-installed:
 - Updated **pi-session-search** (not pi-search): summary adapter and existing cache.
 - Native pi compaction needs no extra package.
 
+**Release 0.8.0** keeps newly rotated daily sessions independent in `/resume`.
+Previous-session provenance remains in maintenance metadata; existing parent
+links are unchanged. Includes the TypeScript 7 and Node development-type updates.
+
 **Release 0.7.0** adds `recoveryMaxTurns` (default 50, whole number 1–100)
 for full-memory recovery, with settings/status visibility and retry re-admission
 when the limit changes. Cost budgets, call deadlines and cancellation remain
@@ -126,8 +130,8 @@ Active sessions receive `YYYY-MM-DD` display names based on their creation date.
 When the calendar advances, the next safe idle check starts a **fresh native Pi
 session** named for today, without a native parent link so daily sessions stay
 independent in `/resume`. The previous saved session is referenced only in private
-maintenance metadata; existing parent links are not rewritten. UTC is the default; `local` or an IANA zone such as `America/New_York` selects another
-calendar. DST is calendar-based, not a 24-hour timeout. Missed days produce only
+maintenance metadata; existing parent links are not rewritten. UTC is the default;
+`local` or an IANA zone such as `America/New_York` selects another calendar. DST is calendar-based, not a 24-hour timeout. Missed days produce only
 one session for today; backward clock changes never rotate into a previous date.
 Enabling this on an older session catches up at the next safe idle boundary.
 
