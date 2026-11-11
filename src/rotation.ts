@@ -128,7 +128,9 @@ export class DailyRotation {
       // Queue the departing conversation before runtime teardown. Backlog remains
       // durable and is not contingent on model/auth/validation/budget success.
       if (previousSession) b.coordinator.enqueue(previousSession);
-      const result = await ctx.newSession({ parentSession: previousSession,
+      // Daily sessions are independent roots in /resume; provenance stays in
+      // maintenance metadata rather than native fork/parent lineage.
+      const result = await ctx.newSession({
         setup: async manager => {
           manager.appendSessionInfo(day);
           manager.appendCustomEntry(ROTATION_ENTRY, { day, timeZone: config.sessionRotation.timeZone, startedAt: new Date(this.now()).toISOString(), previousSession, carry });

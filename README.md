@@ -124,8 +124,9 @@ settings, `/maintenance settings`, or the generic host `configure` request:
 
 Active sessions receive `YYYY-MM-DD` display names based on their creation date.
 When the calendar advances, the next safe idle check starts a **fresh native Pi
-session** named for today, linking the previous saved session as its parent. UTC
-is the default; `local` or an IANA zone such as `America/New_York` selects another
+session** named for today, without a native parent link so daily sessions stay
+independent in `/resume`. The previous saved session is referenced only in private
+maintenance metadata; existing parent links are not rewritten. UTC is the default; `local` or an IANA zone such as `America/New_York` selects another
 calendar. DST is calendar-based, not a 24-hour timeout. Missed days produce only
 one session for today; backward clock changes never rotate into a previous date.
 Enabling this on an older session catches up at the next safe idle boundary.

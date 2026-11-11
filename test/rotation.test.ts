@@ -90,11 +90,30 @@ test("adopts the creation-date name and rotates once after midnight without a mo
     f.advance(20_000); assert.equal(f.rotator.poll(), true); assert.equal(f.held, true);
     assert.equal(f.rotator.poll(), true); assert.equal(await f.dispatch(), "Daily session started: 2026-10-14.");
     assert.equal(f.switches, 1); assert.equal(f.manager.getSessionName(), "2026-10-14");
-    assert.equal(f.manager.getHeader()!.parentSession, previous); assert.deepEqual(f.backlog, [previous]);
+    assert.equal(f.manager.getHeader()!.parentSession, undefined); assert.deepEqual(f.backlog, [previous]);
     assert.equal(readFileSync(previous, "utf8"), before); assert.equal(f.rotator.poll(), false);
-    assert.equal(f.manager.getEntries().filter(e => e.type === "custom" && e.customType === ROTATION_ENTRY).length, 1);
+    const records = f.manager.getEntries().filter(e => e.type === "custom" && e.customType === ROTATION_ENTRY);
+    assert.equal(records.length, 1);
+    assert.equal((records[0] as any).data.previousSession, previous);
     // Metadata alone does not force a fake conversation into the new session.
     assert.equal(existsSync(f.manager.getSessionFile()!), false);
+  } finally { f.close(); }
+});
+
+test("successive daily sessions remain independent roots with metadata-only provenance", async () => {
+  const f = fixture();
+  try {
+    for (let day = 0; day < 3; day++) {
+      const previous = f.manager.getSessionFile()!;
+      f.advance(86400_000); f.rotator.poll(); await f.dispatch();
+      assert.equal(f.manager.getHeader()!.parentSession, undefined);
+      const record: any = f.manager.getEntries().find(e => e.type === "custom" && e.customType === ROTATION_ENTRY);
+      assert.equal(record.data.previousSession, previous);
+      assert.equal(f.manager.getEntries().some(e => e.type === "message"), false);
+      // Real conversation persists the session before the next daily rotation.
+      f.manager.appendMessage({ role: "user", content: `Day ${day}`, timestamp: Date.now() });
+    }
+    assert.equal(f.switches, 3); assert.equal(f.backlog.length, 3);
   } finally { f.close(); }
 });
 
