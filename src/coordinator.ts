@@ -10,7 +10,6 @@ import { unresolvedTools } from "./pairing.ts";
 import { formatFooter, type FooterState } from "./footer.ts";
 import { classify, groupedIssues, isBinaryIssue, maintenanceIssue } from "./issues.ts";
 import { RunLog, type ModelEvent } from "./runs.ts";
-import { hostname } from "node:os";
 import { safeText } from "./text.ts";
 import { SnapshotCache } from "./snapshot-cache.ts";
 
@@ -490,7 +489,7 @@ export class Coordinator {
     if (unresolvedTools(branch)) return "unresolved tool calls are present";
     if (existsSync(this.current) && snapshot(this.current).hash !== hash(projectEntries(this.ctx.sessionManager.getEntries()))) return "saved and in-memory conversation differ";
     const executor = this.store.lease("executor:" + this.ctx.cwd);
-    if (executor && executor.token !== this.store.owner && (executor.host !== hostname() || this.store.isAlive(executor.pid))) return "another workspace executor is active";
+    if (executor && executor.token !== this.store.owner && this.store.isLive(executor)) return "another workspace executor is active";
     return undefined;
   }
   prepareRotation(): { check(): string | undefined; release(): void } | undefined {
@@ -520,7 +519,7 @@ export class Coordinator {
     const c = this.store.control(this.ctx.cwd);
     const foreign = (key: string) => {
       const lease = this.store.lease(key);
-      return lease && lease.token !== this.store.owner && (lease.host !== hostname() || this.store.isAlive(lease.pid)) ? lease : undefined;
+      return lease && lease.token !== this.store.owner && this.store.isLive(lease) ? lease : undefined;
     };
     const owner = this.current ? foreign("session:" + this.current) : undefined;
     const executor = foreign("executor:" + this.ctx.cwd);
@@ -616,15 +615,15 @@ export class Coordinator {
     // Query receipts only while idle, not on every foreground keystroke.
     const records = !foregroundBusy && !this.running ? this.store.records(this.ctx.cwd) : [];
     const groups = this.issueGroups(records);
-    const peer = executor && executor.token !== this.store.owner && executor.host === hostname() && this.store.isAlive(executor.pid)
+    const peer = executor && executor.token !== this.store.owner && this.store.isLive(executor)
       ? records.find(r => r.active?.owner === executor.token)?.active : undefined;
     this.footerState = {
       enabled: this.config.enabled && !c.disabled, pausedUntil: c.paused_until, now,
       running: this.running ? { stage: this.running.stage, progress: this.progress, stopping: this.running.abort.signal.aborted, started: this.running.started }
         : peer ? { stage: peer.stage, progress: peer.progress, stopping: false, started: peer.started } : undefined,
-      observerPid: owner && owner.token !== this.store.owner ? owner.pid : undefined,
+      observerPid: owner && owner.token !== this.store.owner && this.store.isLive(owner) ? owner.pid : undefined,
       settingsOpen: this.localHolds > 0, foregroundBusy, peerBusy: this.store.otherBusy(this.ctx.cwd),
-      executorPid: executor && executor.token !== this.store.owner ? executor.pid : undefined,
+      executorPid: executor && executor.token !== this.store.owner && this.store.isLive(executor) ? executor.pid : undefined,
       savedSession: Boolean(this.current), budgetReached: this.store.spent() >= this.config.dailyBudget,
       errors: Math.max(this.footerError ? 1 : 0, groups.filter((g) => g.kind === "error").length),
       blockers: groups.filter((g) => g.kind === "blocked").length,

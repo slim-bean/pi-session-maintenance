@@ -306,8 +306,25 @@ No model calls or source-file parsing happen to render the footer.
   A second window shows an observer warning; it does not maintain that session.
   **This does not lock ordinary pi conversation writes.** Avoid two active writers.
 - Live/foreign owners are never displaced merely because their heartbeat is old.
-  Proven dead local PIDs can be recovered automatically, with a warning. Ambiguous
-  ownership remains visible; no stale-PID kill or force-unlock occurs.
+  Linux ownership records include kernel boot ID, PID namespace and process-start
+  ticks, so reusing a PID after a restart does not impersonate the old owner.
+  Session/executor admission, busy peers and status use the same liveness check.
+  Proven-dead local owners can be recovered automatically, with a warning; no
+  process is killed. Missing/unreadable identity metadata retains conservative
+  PID-only behavior on restricted or other operating systems.
+- Existing ledgers migrate in place, preserving receipts, controls, spend and
+  history. A legacy PID-only lease naming this very process can recover when its
+  recorded heartbeat predates this process's startup by more than two seconds
+  (startup/clock precision margin, **not** a lease expiry). This narrow legacy
+  comparison assumes a consistent wall clock across that process lifetime;
+  other ambiguous legacy owners remain protected. Legacy busy participants reuse
+  only actual recorded lease timestamps; unknown orphan participants stay held.
+  Reload all instances sharing a state directory together: old package versions
+  do not understand the added ownership columns.
+- Hostnames still define the local process-observation domain, not authenticated
+  identity. Concurrent containers/PID namespaces sharing a ledger must have
+  distinct hostnames; this does not add cross-host owner discovery or a distributed
+  lock. A heartbeat timeout is never used as evidence that a live owner died.
 - `/new`, switching and shutdown observe the departing saved session and release
   ownership. Its backlog remains durable. Multiple sessions in the same cwd share
   an executor claim; memory writes also use the OKF bundle's own lock.
