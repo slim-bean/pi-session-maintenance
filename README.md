@@ -28,6 +28,14 @@ Optional dependencies are separate packages, not bundled or auto-installed:
 - Updated **pi-session-search** (not pi-search): summary adapter and existing cache.
 - Native pi compaction needs no extra package.
 
+**Release 0.8.1** fixes maintenance ownership getting stuck after a restart reuses
+an old process ID. Linux leases and busy peers now track process incarnation;
+legacy own-PID recovery is narrowly birth-checked, while uncertain and foreign
+owners remain protected. Includes saved-backlog maintenance with an unsaved
+foreground session. Reload all instances sharing a ledger together; see
+[Session lifecycle and ownership](#session-lifecycle-and-ownership) for migration
+and observation limits.
+
 **Release 0.8.0** keeps newly rotated daily sessions independent in `/resume`.
 Previous-session provenance remains in maintenance metadata; existing parent
 links are unchanged. Includes the TypeScript 7 and Node development-type updates.
