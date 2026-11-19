@@ -61,9 +61,9 @@ test("ownership is atomic, does not expire live owners, and recovers only dead l
     assert.equal(a.claim("session:x"), true); assert.equal(b.claim("session:x"), false);
     a.release("session:x"); assert.equal(b.claim("session:x"), true);
     b.release("session:x");
-    a.db.prepare("INSERT INTO leases VALUES(?,?,?,?,?)").run("session:x", "dead", 987654, hostname(), 0);
+    a.db.prepare("INSERT INTO leases(key,token,pid,host,heartbeat) VALUES(?,?,?,?,?)").run("session:x", "dead", 987654, hostname(), 0);
     assert.equal(b.claim("session:x"), true);
-    a.db.prepare("INSERT INTO leases VALUES(?,?,?,?,?)").run("foreign", "other", 987654, "another-host", 0);
+    a.db.prepare("INSERT INTO leases(key,token,pid,host,heartbeat) VALUES(?,?,?,?,?)").run("foreign", "other", 987654, "another-host", 0);
     assert.equal(b.claim("foreign"), false);
     a.setControl("cwd", 1000, true); assert.equal(b.control("cwd").disabled, 1);
     a.account(0.1); b.account(0.2); assert.ok(Math.abs(a.spent() - 0.3) < 0.0001);

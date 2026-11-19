@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtempSync, writeFileSync, rmSync, readFileSync, realpathSync, unlinkSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, hostname } from "node:os";
 import { join } from "node:path";
 import { Coordinator } from "../src/coordinator.ts";
 import { parseConfig } from "../src/config.ts";
@@ -47,13 +47,36 @@ async function fixture(options: any = {}) {
     });
   } };
   const config = parseConfig({ idleSeconds: 1, stateDir: join(dir, "state"), compaction: { enabled: true, minTokens: 0 }, ...options.config }, dir);
-  const store = new Store(config.stateDir, () => clock);
+  const store = new Store(config.stateDir, () => clock, undefined, options.probe);
   const c = new Coordinator(bus, store, config, () => clock);
   await c.attach(ctx);
   return { c, ctx, store, calls, dir, path, entries, save, notifications, footers, bus,
     set idle(v: boolean) { idle = v; }, set pending(v: boolean) { pending = v; }, set tokens(v: number) { tokens = v; },
     advance(ms = 2000) { clock += ms; }, async close() { await c.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
+
+test("reused-PID ownership no longer blocks rotation, immediate admission or peer/executor gates", async () => {
+  const f = await fixture({ upgraded: true, config: { compaction: { enabled: false } },
+    probe: () => ({ incarnation: "current", startedAt: 50_000 }) });
+  try {
+    const insertLease = (key: string) => f.store.db.prepare("INSERT OR REPLACE INTO leases(key,token,pid,host,heartbeat,incarnation) VALUES(?,?,?,?,?,?)")
+      .run(key, "previous-process", process.pid, hostname(), 10, "old");
+    insertLease("session:" + f.path);
+    insertLease("executor:" + f.dir);
+    f.store.db.prepare("INSERT INTO participants(token,cwd,pid,host,busy,incarnation,heartbeat) VALUES(?,?,?,?,?,?,?)")
+      .run("previous-process", f.dir, process.pid, hostname(), 1, "old", 10);
+    f.advance(); await f.c.tick();
+    assert.equal(f.c.status().ownsSession, true);
+    assert.equal(f.c.status().peerBusy, false);
+    assert.ok(f.store.get(f.path)!.review);
+    // Insert another stale executor after normal work released the first one.
+    insertLease("executor:" + f.dir);
+    assert.equal(f.c.rotationBlocker(), undefined);
+    const ticket = f.c.prepareRotation(); assert.ok(ticket); assert.equal(ticket.check(), undefined); ticket.release();
+    insertLease("executor:" + f.dir);
+    assert.match(await f.c.runNow(), /Started summary/);
+  } finally { await f.close(); }
+});
 
 test("an unsaved foreground session can maintain saved backlog without saving or compacting itself", async () => {
   for (const manual of [false, true]) {

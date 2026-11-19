@@ -8,7 +8,7 @@ Read README.md. Capability-driven maintenance, not a browser or knowledge implem
   unsaved. Never create a synthetic source/receipt or compact an archive to unblock it.
 - Source conversation history is read-only except native compaction. Opt-in daily rotation may append date-name/custom metadata and use native newSession; never rewrite/delete prior entries or synthesize a chat prompt. Keep departing sessions queued for archive review/summary.
 - All branches belong in knowledge/search inputs. Do not treat off-branch as rejected.
-- SQLite holds queue, receipts, controls, spend and advisory ownership. Never steal live/foreign owners based on age.
+- SQLite holds queue, receipts, controls, spend and advisory ownership. Never steal live/foreign owners based on age. Route lease/peer/admission/status liveness through Store.isLive, not raw PID probes. Linux ownership includes boot ID, PID namespace and start ticks; unknown identities stay protected. Legacy own-PID birth checks are narrowly scoped and preserve all non-ownership state.
 - Same-cwd participants publish busy state and interruption counters; poll them even during a running job. Keep progress visible and leases held until real stop.
 - Unchanged idle full inspections are capped at 60 seconds, independently of heartbeat
   polls. Async source metadata plus config/model/queue changes invalidate that gate;
