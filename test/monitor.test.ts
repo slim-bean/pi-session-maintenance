@@ -34,7 +34,13 @@ test("watch/status typing and monitor navigation do not cancel a live run; ordin
       }); } } };
   const status = async () => { const r: any = { protocol: 1, operation: "status" }; bus.emit("pi-session-maintenance:control:v1", r); return r.result; };
   try {
-    maintenance(pi); await hooks.get("session_start")!({}, ctx);
+    maintenance(pi);
+    await command.handler("help", ctx);
+    assert.match(notices.at(-1)!, /\/maintenance rotate/);
+    assert.doesNotMatch(notices.at(-1)!, /rotation-restore/);
+    assert.deepEqual(command.getArgumentCompletions("settings sh").map((c: any) => c.value), ["settings show"]);
+    assert.equal(command.getArgumentCompletions("settings show extra"), null);
+    await hooks.get("session_start")!({}, ctx);
     await command.handler("run", ctx); assert.match(notices.at(-1)!, /Started summary immediately/);
     await command.handler("retry", ctx); assert.match(notices.at(-1)!, /already running/); assert.equal(activeSignal!.aborted, false);
     const before = await status();

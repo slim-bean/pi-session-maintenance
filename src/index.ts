@@ -106,16 +106,23 @@ export default function maintenance(pi: ExtensionAPI) {
   const help = () => "Session maintenance commands\n" + values.map((v) => `/maintenance ${v} — ${descriptions[v]}`).join("\n") +
     "\n\nExamples: /maintenance suspend 30m · /maintenance settings · /maintenance backfill /path/to/session.jsonl";
   pi.registerCommand("maintenance", {
-    description: "Session maintenance: status/watch/history/settings/run/retry/cancel/suspend/resume/off/on/backfill",
+    description: "Manage session maintenance and rotation (see /maintenance help)",
     getArgumentCompletions(prefix) {
-      const matches = values.filter((v) => v.startsWith(prefix)).map((value) => ({ value, label: value }));
-      return matches.length ? matches.map((m) => ({ ...m, description: descriptions[m.value] })) : null;
+      const parts = prefix.trimStart().split(/\s+/);
+      if (parts.length === 2 && parts[0] === "settings" && "show".startsWith(parts[1])) {
+        return [{ value: "settings show", label: "show", description: "Inspect settings without editing" }];
+      }
+      if (parts.length !== 1) return null;
+      const matches = values.filter((v) => v.startsWith(parts[0]))
+        .map((value) => ({ value, label: value, description: descriptions[value] }));
+      return matches.length ? matches : null;
     },
     async handler(args, commandCtx) {
       const runtimeAtEntry = coordinator;
       try {
-        const c = requireCoordinator();
         const [requested = "status", ...rest] = args.trim().split(/\s+/).filter(Boolean);
+        if (requested === "help") { commandCtx.ui.notify(help(), "info"); return; }
+        const c = requireCoordinator();
         const action = requested === "logs" ? "history" : requested; // compatibility alias, not advertised
         if (action === "rotate") {
           const message = await rotation.execute(commandCtx, rest[0]);
@@ -177,7 +184,6 @@ export default function maintenance(pi: ExtensionAPI) {
           if (coordinator !== c) throw new Error("Session changed; retry backfill in the current session");
           c.enqueue(path.trim()); commandCtx.ui.notify("Saved session queued. Its conversation stays read-only; archives are never compacted.", "info");
         }
-        else if (action === "help") commandCtx.ui.notify(help(), "info");
         else throw new Error(`Unknown maintenance action: ${action}\n\n${help()}`);
       } catch (e) { if (coordinator === runtimeAtEntry) commandCtx.ui.notify(safeText((e as Error).message), "error"); }
     },
