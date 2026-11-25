@@ -28,6 +28,13 @@ Optional dependencies are separate packages, not bundled or auto-installed:
 - Updated **pi-session-search** (not pi-search): summary adapter and existing cache.
 - Native pi compaction needs no extra package.
 
+**Release 0.10.0** pairs with pi-okf-agent-memory 0.12.0, which stores memory
+natively (no `okf` binary). Guidance reads its structured validation findings,
+explains `memory-upgrade-review`, and treats `memory-context-capacity` as a model
+choice to fix rather than something to wait out. The adapter now reports that
+condition as blocked, so it backs off instead of retrying every poll. No protocol
+or settings change; older memory adapters keep working.
+
 **Release 0.8.1** fixes maintenance ownership getting stuck after a restart reuses
 an old process ID. Linux leases and busy peers now track process incarnation;
 legacy own-PID recovery is narrowly birth-checked, while uncertain and foreign
@@ -413,9 +420,10 @@ already-attempted automatic repairs retain backoff. No fabricated facts, provena
 review dates or semantic relationships; findings outside structural authority stay
 explicit blockers with the reason automatic repair could not proceed.
 
-Successful OKF reviews can retain non-blocking validation advisories. Independent
-concepts do not require invented relationships; schema, index/drift, broken links,
-governance/provenance and stale-data findings remain blocking. Old orphan-only strict
+Successful memory reviews can retain non-blocking validation advisories (for
+example an expired `stale_after` date). Independent concepts never require invented
+relationships. With pi-okf-agent-memory 0.12+, blocking findings are structural only:
+unreadable concept frontmatter and broken links. Old orphan-only strict
 validation records are classified without deleting receipts/plans; when the updated
 adapter reports advisory policy, those plans are re-admitted for real validation and
 Git finalization. They are never marked complete merely because policy changed.
@@ -555,6 +563,6 @@ npm run typecheck
 ```
 
 Tests use fake model registries, temporary session files/corpora/Git repositories,
-and real bundled OKF CLI validation. Cross-project adapter tests require adjacent
+and the adjacent memory package's native validation. Cross-project adapter tests require adjacent
 local checkouts. They **never launch authenticated pi, read auth.json, call a real
 provider, or access personal browser/history data**. No model calls are needed.

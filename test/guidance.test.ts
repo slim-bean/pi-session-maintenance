@@ -26,6 +26,13 @@ test("guidance distinguishes routine waiting from specific prerequisite repairs"
   assert.match(nextSteps(group("model-auth")).actions.join(" "), /normal login\/credential/);
   const validation = nextSteps(group("memory-validation", { validation: { warnings: ["concept x missing parent index listing"] } }));
   assert.equal(validation.intervention, "needed"); assert.match(validation.actions.join(" "), /concept x missing/);
+  // pi-okf-agent-memory 0.12+ reports structured findings instead of validator arrays.
+  const native = nextSteps(group("memory-validation", { findings: [{ code: "invalid-concept", file: "x.md", message: "x.md: frontmatter has no title." }] }));
+  assert.equal(native.intervention, "needed"); assert.match(native.actions.join(" "), /x\.md: frontmatter has no title/);
+  assert.match(nextSteps(group("memory-context-capacity")).actions.join(" "), /larger-context review model/);
+  assert.equal(nextSteps(group("memory-context-capacity")).intervention, "needed");
+  assert.match(nextSteps(group("memory-upgrade-review")).actions.join(" "), /\/memory-upgrade/);
+  assert.match(nextSteps(group("okf-binary")).actions.join(" "), /0\.12\.0 or newer/);
   assert.match(nextSteps(group("stale-context")).actions.join(" "), /\/reload alone does not reread/);
   assert.equal(nextSteps(group("memory-repair-pending")).intervention, "none");
   assert.equal(nextSteps(group("memory-repair-conflict")).intervention, "none");

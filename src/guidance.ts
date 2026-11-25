@@ -12,7 +12,8 @@ export function nextSteps(g: IssueGroup): Guidance {
     case "memory-recovery-transient": return wait("The recovery worker/provider failed transiently. Its case and checkpoints are retained; automatic retry uses exponential backoff. No human repair approval or foreground handoff is needed.");
     case "memory-recovery-pending": return wait("The full-ownership agent is investigating/repairing this failure. Durable recovery evidence and checkpoints are retained; it continues automatically at the next safe idle/budget opportunity. No human approval or repair handoff is expected.");
     case "memory-upgrade-pending": return wait("The coordinator finishes installed memory contracts before review. Keep the upgrades stage enabled; a host may also request the prerequisite upgrade directly. No human review approval is required in full mode.");
-    case "memory-context-capacity": return wait("Recovery will use incremental tool reads rather than truncating evidence. If the selected model cannot support the bounded recovery request, provision a model with sufficient context capacity.");
+    case "memory-context-capacity": return needed("The selected review model's context window cannot hold one session section plus the review prompt. Existing memory is already sized to the model, so choose a larger-context review model in /maintenance settings.");
+    case "memory-upgrade-review": return needed("A pending memory upgrade step needs a model-reviewed session. Run /memory-upgrade in an interactive session for this workspace.");
     case "memory-external": return needed("Autonomous recovery reports an external prerequisite. Provision the specifically missing permission, credential, compatible runtime or unavailable resource through the host; no console answer is awaited. Inspect the recovery case for its evidence. Memory facts/policy ambiguity should be handled by qualification or archival, not human approval.");
     case "memory-repair-pending": return wait("The agent queued validation repair for the next safe idle opportunity. The saved extraction plan is retained; no repeated extraction or human approval is needed.");
     case "memory-repair-conflict": return wait("A foreground writer changed the corpus after repair planning. The stale repair checkpoint is preserved; maintenance will replan against the new content without overwriting it.");
@@ -20,7 +21,7 @@ export function nextSteps(g: IssueGroup): Guidance {
     case "tool-pairing": return wait("Wait for outstanding tools to return. If the turn has already ended, inspect and repair the orphaned tool-call/result pairing before compacting; do not hide missing results.");
     case "stale-context": return needed("Stop any second writer, then reopen this saved session with /resume so in-memory history matches the file. /reload alone does not reread edited JSONL.");
     case "source-unavailable": return needed("Check the saved-session file named above. Restore it if missing/corrupt; if its cwd changed, resume it in its proper workspace. Do not rewrite headers or fabricate history to bypass the scope check.");
-    case "okf-binary": return needed("Run /memory-diagnostics to see the loaded extension, selected binary, lookup candidates and resource settings files. Restore that package's host-matched bin/ executable or correct OKF_BIN; then retry. Old failures are archived only after a fresh healthy adapter status.");
+    case "okf-binary": return needed("This failure came from a memory package that still used an external okf binary. Update pi-okf-agent-memory to 0.12.0 or newer (it stores memory natively) and reload; the old failure is archived after a fresh healthy adapter status.");
     case "model-auth": return needed("Configure credentials for the named provider using pi's normal login/credential setup, or choose an already configured review/summary model in /maintenance settings. Do not paste credentials into the conversation.");
     case "git-identity": return needed("Configure the repository's real Git user.name and user.email. Maintenance does not invent author identity. Retry finalization after configuring them.");
     case "git-upstream": return needed("Attach the knowledge repository to the intended branch and configure its upstream remote/branch, or turn Push off in /maintenance settings. No remote or upstream is created automatically.");
@@ -35,7 +36,13 @@ export function nextSteps(g: IssueGroup): Guidance {
       const v = d?.validation;
       const actions = [d?.repair?.automatic
         ? `Automatic index/link repair ${d.repair.status === "retryable" ? "will retry within its bounded proposal allowance" : "could not safely clear the remaining findings"}. ${d.repair.reason ?? "Inspect the recorded repair evidence."} Saved extraction plans remain pending.`
-        : "The current OKF maintenance adapter automatically repairs index bookkeeping and evidenced broken link targets. Reload older adapters to enable it. Inspect memory_validate for findings that need factual/governance/policy evidence rather than structural repair."];
+        : "The memory adapter regenerates navigation and repairs evidenced broken link targets automatically. Inspect memory_validate for findings that need a concept file repaired."];
+      // pi-okf-agent-memory 0.12+ reports structured findings; older adapters reported validator arrays (below).
+      const findings = (g.detail as { findings?: { message?: string }[] } | undefined)?.findings;
+      if (Array.isArray(findings)) {
+        for (const finding of findings.slice(0, 5)) if (typeof finding?.message === "string") actions.push(finding.message);
+        if (findings.length > 5) actions.push(`${findings.length - 5} more findings remain in memory_validate.`);
+      }
       if (v) {
         for (const [key, label] of [["errors", "Schema/provenance/governance"], ["warnings", "Index/drift/staleness warnings"], ["gate_findings", "Gate findings"], ["broken_links", "Broken links"]]) {
           if (!Array.isArray(v[key]) || !v[key].length) continue;

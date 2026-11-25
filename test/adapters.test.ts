@@ -10,6 +10,7 @@ import { Store } from "../src/store.ts";
 import { parseConfig } from "../src/config.ts";
 // @ts-expect-error The sibling's JavaScript test loader supplies pi's runtime aliases.
 const { jiti } = await import("../../pi-okf-agent-memory/test/loader.mjs");
+const memoryStore = await jiti.import(resolve(import.meta.dirname, "../../pi-okf-agent-memory/lib/memory.ts")) as typeof import("../../pi-okf-agent-memory/lib/memory.ts");
 const { registerMemoryMaintenance } = await jiti.import(resolve(import.meta.dirname, "../../pi-okf-agent-memory/lib/maintenance.ts")) as typeof import("../../pi-okf-agent-memory/lib/maintenance.ts");
 import { registerSummaryMaintenance } from "../../pi-session-search/extension/maintenance.ts";
 import { SessionIndex } from "../../pi-session-search/extension/indexer.ts";
@@ -19,16 +20,15 @@ for (const memoryOwnership of ["limited", "full"] as const) test(`real package a
   const env = { ...process.env };
   process.env.PI_CODING_AGENT_DIR = dir; delete process.env.OKF_KNOWLEDGE_DIR;
   process.env.GIT_CONFIG_GLOBAL = "/dev/null"; process.env.GIT_CONFIG_NOSYSTEM = "1";
-  const binary = resolve(import.meta.dirname, "../../pi-okf-agent-memory/bin/okf-" + process.platform + "-" + (process.arch === "x64" ? "amd64" : process.arch));
   const bundle = join(dir, "knowledge");
-  execFileSync(binary, ["init", bundle]);
+  memoryStore.initBundle(bundle);
   for (const args of [["init", "--quiet"], ["config", "user.name", "Offline Integration"], ["config", "user.email", "offline@example.invalid"], ["config", "commit.gpgsign", "false"]]) {
     execFileSync("git", ["-C", bundle, ...args]);
   }
   // Existing validation failures must repair automatically, even before the
   // first upgrade: no /maintenance retry, foreground delegation or live model.
-  execFileSync(binary, ["create", "target", bundle, "--title", "Target", "--desc", "Target rationale.", "--body", "Existing evidence."]);
-  execFileSync(binary, ["create", "source", bundle, "--title", "Source", "--desc", "Uses the target.", "--body", "See [target](wrong.md) for the rationale."]);
+  memoryStore.writeConcept(bundle, { id: "target", title: "Target", description: "Target rationale.", body: "Existing evidence." });
+  memoryStore.writeConcept(bundle, { id: "source", title: "Source", description: "Uses the target.", body: "See [target](wrong.md) for the rationale." });
   writeFileSync(join(bundle, "index.md"), "# Knowledge\n");
   const path = join(dir, "sessions", "fixture", "s.jsonl"); mkdirSync(join(dir, "sessions", "fixture"), { recursive: true });
   const entries: any[] = [
@@ -61,7 +61,7 @@ for (const memoryOwnership of ["limited", "full"] as const) test(`real package a
             : { reviewed: true, changes: [] }) }], usage: { cost: { total: 0.01 } } }) };
     } },
   };
-  const memory = registerMemoryMaintenance(pi, { packageVersion: "0.2.0", skillsDir: resolve(import.meta.dirname, "../../pi-okf-agent-memory/skills"), getBinary: () => binary, busy: () => false });
+  const memory = registerMemoryMaintenance(pi, { packageVersion: "0.2.0", skillsDir: resolve(import.meta.dirname, "../../pi-okf-agent-memory/skills"), busy: () => false });
   const index = new SessionIndex(join(dir, "summary.db"));
   const summary = registerSummaryMaintenance(pi, () => index);
   bus.on("pi-session-maintenance:capabilities:v1", (r: any) => { r.capabilities.summary = { protocol: 1, channel: "pi-session-search:maintenance:v1" }; });
@@ -74,7 +74,9 @@ for (const memoryOwnership of ["limited", "full"] as const) test(`real package a
     for (let i = 0; i < 6; i++) await coordinator.tick();
     const record = store.get(path)!;
     assert.ok(record.review); assert.ok(record.summary);
-    const expected = memoryOwnership === "full" ? 5 : 4; // full repair uses a tool turn + host-verified completion
+    // Link repair + review + summary. Upgrades are deterministic and need no model;
+    // full repair uses a tool turn + host-verified completion instead of one proposal.
+    const expected = memoryOwnership === "full" ? 4 : 3;
     assert.equal(calls, expected);
     assert.match((await import("node:fs")).readFileSync(join(bundle, "source.md"), "utf8"), /\[target\]\(target.md\)/);
     assert.equal(execFileSync("git", ["-C", bundle, "status", "--porcelain"], { encoding: "utf8" }), "");
@@ -82,7 +84,7 @@ for (const memoryOwnership of ["limited", "full"] as const) test(`real package a
     if (memoryOwnership === "full") {
       // An independently broken corpus must heal even when source coverage is
       // already fresh; corpus fingerprints re-admit validation without re-extraction.
-      execFileSync(binary, ["update", "source", bundle, "--body", "See [target](wrong.md) for the rationale."]);
+      memoryStore.writeConcept(bundle, { id: "source", body: "See [target](wrong.md) for the rationale." });
       // External corpus changes are rediscovered at the bounded idle inspection interval.
       clock += 61_000; await coordinator.tick(); await coordinator.tick();
       assert.equal(calls, expected + 2);
