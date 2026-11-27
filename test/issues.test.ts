@@ -26,6 +26,19 @@ test("old orphan-only validation failures become one shared blocker, not six err
     spentToday: 0, config: cfg, sessions: records } as any, { memory: { protocol: 1, channel: "memory" } }, 1);
   assert.match(text, /0 errors · 1 blockers · 0 waiting/); assert.match(text, /affects 6 session\(s\)/);
 });
+test("separate recovery cases on the same bundle remain individually actionable", () => {
+  const sessions = [1, 2].map(i => {
+    const r = record(`/workspace/${i}.jsonl`);
+    Object.assign(r.errors!.review!, { kind: "error", code: "memory-recovery-stalled", resource: "/bundle",
+      message: "Stalled", detail: { recovery: { casePath: `/private/case-${i}`, attempts: 710, model: "example/flash", lastProgressAt: Date.parse("2026-11-01T00:00:00Z") } } });
+    return r;
+  });
+  const text = formatStatus({ enabled: true, control: null, spentToday: 0, config: parseConfig({}, "/workspace"), sessions,
+    idleRemainingSeconds: 0 } as any, { memory: { protocol: 1, channel: "memory" } }, 1);
+  for (const path of ["/private/case-1", "/private/case-2"]) assert.ok(text.includes(path));
+  assert.match(text, /Case attempts: 710 · model: example\/flash · last recorded progress: 2026-11-01/);
+  assert.match(text, /more capable review model/);
+});
 test("typed deferrals are routine waiting; unrelated failures remain errors", () => {
   assert.equal(classify(maintenanceIssue("deferred", "bundle-lock", "/bundle", "another writer owns the bundle")).kind, "deferred");
   assert.equal(classify(new Error("provider unavailable")).kind, "error");

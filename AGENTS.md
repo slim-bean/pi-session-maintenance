@@ -30,7 +30,7 @@ Read README.md. Capability-driven maintenance, not a browser or knowledge implem
   and show elapsed/deadline/provider errors in history and session views. Never infer
   timeout from an old generic aborted record or mutate the provider's native message.
 - Keep corpus operations inside the OKF adapter, including configured limited/full recovery, commits and non-force pushes. Full failures continue automatically within budget/turn gates; unknown facts/governance are investigation/qualification work, not human approval. Only unavailable host resources or authority beyond memory scope are external prerequisites. Pass memoryGitIdentity only as explicit authorization, never invent it. Full shell has process permissions and does not inherit foreground tool overrides; logs are private/cooperative, not infrastructure audit. Never manufacture success.
-- `store.ts` archives resolved blockers to issue_history only with fresh adapter evidence.
+- `store.ts` archives resolved blockers to issue_history only with fresh status or successful stage evidence.
   Preserve original counters/messages/unknown timestamps; compare against the current
   issue before clearing it. Never manufacture review/summary completion receipts.
 - Track actual configuration origin separately from Config; don't infer loaded settings
@@ -50,6 +50,6 @@ Read README.md. Capability-driven maintenance, not a browser or knowledge implem
   selection and scroll during refresh; support narrow panes and nested read-only
   session inspection. Never switch/resume the foreground session to view a journal.
 - `viewer.ts`/`passive-input.ts` own passive inspection: no model calls, scheduler holds, ownership changes or cancellation from monitor navigation. Normal foreground input still preempts work. Escape terminal controls and bound display sizes.
-- Manual run/retry share runNow admission: no idle/poll delay, explicit blockers, no promise of running if nothing is due. Preserve checkpoints/attempt history and never bypass safety or budget gates.
+- Manual run/retry share runNow admission: no idle/poll delay, explicit blockers, no promise of running if nothing is due. If an executor stage or admission check is active, report without mutating retry state or cancelling. Preserve checkpoints/attempt history and never bypass safety or budget gates.
 - `settings.ts` uses built-in dialogs, draft-only edits and compare-before-rename workspace saves. Hold maintenance while editing; guard against session/config changes; never resolve credentials to list models.
 - Tests: npm test; npm run typecheck. No model calls, normal session writes or browser launches.

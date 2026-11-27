@@ -42,8 +42,14 @@ test("watch/status typing and monitor navigation do not cancel a live run; ordin
     assert.equal(command.getArgumentCompletions("settings show extra"), null);
     await hooks.get("session_start")!({}, ctx);
     await command.handler("run", ctx); assert.match(notices.at(-1)!, /Started summary immediately/);
-    await command.handler("retry", ctx); assert.match(notices.at(-1)!, /already running/); assert.equal(activeSignal!.aborted, false);
     const before = await status();
+    for (const char of "/maintenance  retry") { terminal(char); editor += char; }
+    terminal("\r"); hooks.get("input")!({ text: editor }, ctx);
+    await command.handler("retry", ctx); editor = "";
+    assert.match(notices.at(-1)!, /summary is already running since/);
+    assert.equal((await status()).running.runId, before.running.runId);
+    assert.equal(activeSignal!.aborted, false);
+    assert.equal((await status()).control.cancel_seq, before.control.cancel_seq);
     for (const char of "/maintenance status") { terminal(char); editor += char; }
     terminal("\r"); await command.handler("status", ctx); editor = "";
     assert.equal(activeSignal!.aborted, false);

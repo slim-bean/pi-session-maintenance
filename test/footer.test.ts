@@ -11,6 +11,7 @@ test("idle footer stays terse; active work animates and advertises the passive m
     [{ enabled: false }, "🧹 off"], [{ pausedUntil: 1_801_000 }, "🧹 pause 30m"],
     [{ settingsOpen: true }, "🧹 settings"], [{ savedSession: false }, "🧹 new"],
     [{ budgetReached: true }, "🧹 budget"], [{ errors: 2 }, "🧹 err 2 → status"],
+    [{ recoveryStalled: true, errors: 1 }, "🧹 recovery stalled → status"],
     [{ blockers: 1 }, "🧹 block 1 → status"], [{ deferrals: 1 }, "🧹 wait 1 auto"],
   ];
   for (const [state, expected] of cases) assert.equal(formatFooter({ ...base, ...state }), expected);

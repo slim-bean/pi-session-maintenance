@@ -98,7 +98,7 @@ export default function maintenance(pi: ExtensionAPI) {
     run: "Start now or report the blocker; clear retry backoff", cancel: "Stop local work and suspend the workspace",
     suspend: "Pause for a duration, e.g. 30m", resume: "Clear workspace suspension and begin a fresh idle interval",
     off: "Disable this workspace", on: "Enable maintenance and clear workspace suspension",
-    retry: "Alias for run: start now or report the blocker", backfill: "Queue one saved session from this workspace",
+    retry: "Nudge idle work; report a running stage without changing it", backfill: "Queue one saved session from this workspace",
     rotate: "Rotate an overdue daily session at a safe idle boundary (requires opt-in)",
     help: "Show commands and examples",
   };

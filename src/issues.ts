@@ -60,13 +60,24 @@ export function normalizeRecord(record: RecordState): RecordState {
   }
   return record;
 }
+/** Optional adapter diagnostics; older adapters may report only the path. */
+export function recoveryCase(detail: unknown) {
+  const r = (detail as { recovery?: Record<string, unknown> } | undefined)?.recovery;
+  if (!r) return;
+  const path = r.casePath ?? r.pendingRepair;
+  if (typeof path !== "string" || !path) return;
+  const progress = typeof r.lastProgressAt === "number" ? new Date(r.lastProgressAt) : undefined;
+  return { path, attempts: typeof r.attempts === "number" ? r.attempts : undefined,
+    model: typeof r.model === "string" ? r.model : undefined, lastProgressAt: progress && Number.isFinite(progress.valueOf()) ? progress.toISOString() : typeof r.lastProgressAt === "string" ? r.lastProgressAt : undefined,
+    cause: typeof r.cause === "string" ? r.cause : undefined };
+}
 export interface IssueGroup { kind: IssueKind; code: string; resource: string; message: string; paths: Set<string>; stages: Set<string>; retryAt: number; detail?: unknown; attempts: number; lastAttemptAt?: number; legacyHistory: boolean; parked?: number }
 export function groupedIssues(records: RecordState[], enabled: (stage: string, r: RecordState) => boolean = () => true): IssueGroup[] {
   const groups = new Map<string, IssueGroup>();
   const add = (record: RecordState, issue: Issue, stage: string) => {
     const info = issue.kind ? { kind: issue.kind, code: issue.code ?? "operation-failed", resource: issue.resource, message: issue.message ?? issue.error, detail: issue.detail } : classify(new Error(issue.error));
     const resource = info.resource ?? (info.code === "okf-binary" ? record.cwd : record.path);
-    const key = JSON.stringify([info.kind, info.code, resource]);
+    const key = JSON.stringify([info.kind, info.code, resource, recoveryCase(info.detail)?.path]);
     let group = groups.get(key);
     if (!group) { group = { kind: info.kind, code: info.code, resource, message: info.message, paths: new Set(), stages: new Set(), retryAt: issue.retryAt, detail: info.detail, attempts: issue.attempts ?? issue.failures, lastAttemptAt: issue.lastAttemptAt, legacyHistory: issue.attempts === undefined, parked: 0 }; groups.set(key, group); }
     if (issue.parked) group.parked = (group.parked ?? 0) + 1;

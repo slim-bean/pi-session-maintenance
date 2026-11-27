@@ -79,8 +79,8 @@ export class Store {
   records(cwd: string): RecordState[] {
     return (this.db.prepare("SELECT data FROM sessions WHERE cwd=? ORDER BY path").all(cwd) as { data: string }[]).map((r) => normalizeRecord(JSON.parse(r.data)));
   }
-  /** Archive an obsolete blocker only after fresh adapter evidence. Keep all counters,
-   * messages and unknown legacy timestamps; never manufacture a work receipt. */
+  /** Archive an obsolete blocker only after fresh status or successful work. Keep all
+   * counters, messages and unknown legacy timestamps; never manufacture a receipt. */
   resolveIssue(record: RecordState, stage: "upgrade" | "review" | "summary" | "push" | "compact", evidence: unknown): boolean {
     const expected = record.errors?.[stage];
     if (!expected) return false;
@@ -88,7 +88,7 @@ export class Store {
     try {
       const fresh = this.get(record.path);
       const issue = fresh?.errors?.[stage];
-      if (!fresh || !issue || JSON.stringify(issue) !== JSON.stringify(expected)) { this.db.exec("COMMIT"); return false; }
+      if (!fresh || fresh.hash !== record.hash || !issue || JSON.stringify(issue) !== JSON.stringify(expected)) { this.db.exec("COMMIT"); return false; }
       this.db.prepare("INSERT INTO issue_history(session_path,cwd,stage,resolved_at,evidence,issue) VALUES(?,?,?,?,?,?)")
         .run(record.path, record.cwd, stage, this.now(), JSON.stringify(evidence), JSON.stringify(issue));
       delete fresh.errors![stage]; this.put(fresh); record.errors = fresh.errors;

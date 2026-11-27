@@ -6,10 +6,12 @@ import { join } from "node:path";
 import { Coordinator } from "../src/coordinator.ts";
 import { parseConfig } from "../src/config.ts";
 import { Store } from "../src/store.ts";
+import { formatStatus } from "../src/format.ts";
 
 async function fixture(options: any = {}) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "maintenance-flow-")));
-  let clock = 1000; let idle = true; let pending = false; let upgraded = options.upgraded ?? false; let tokens = 60000;
+  // Model a live process: synthetic heartbeats must not predate its real birth on non-Linux hosts.
+  let clock = Math.ceil(Date.now() / 86_400_000) * 86_400_000 + 1000; let idle = true; let pending = false; let upgraded = options.upgraded ?? false; let tokens = 60000;
   const path = join(dir, "session.jsonl");
   const entries: any[] = [{ type: "message", id: "a", parentId: null, message: { role: "user", content: "a useful decision" } }];
   const save = (target = path) => writeFileSync(target, [{ type: "session", id: target, cwd: dir }, ...entries].map((e) => JSON.stringify(e)).join("\n") + "\n");
@@ -472,7 +474,17 @@ test("manual admission starts immediately before idle/poll delay and returns wit
     const admission = await f.c.runNow(); assert.match(admission, /Started summary immediately/);
     assert.deepEqual(f.calls, ["run"]); assert.equal(f.c.status().running!.stage, "summary");
     assert.match(f.c.status().running!.transcript, /runs.*jsonl$/);
-    assert.match(await f.c.runNow(), /already running/);
+    const live = f.c.status().running!;
+    const row = f.store.get(f.path)!;
+    row.errors = { summary: { failures: 11, retryAt: 40000, lastAttemptAt: 500, error: "previous failure",
+      parked: { at: 500, settings: "previous policy" }, kind: "error", code: "operation-failed" } };
+    f.store.put(row);
+    const stateBefore = f.store.get(f.path);
+    const controlBefore = f.store.control(f.dir);
+    assert.ok((await f.c.retry()).includes(`summary is already running since ${new Date(live.started).toISOString()}`));
+    assert.equal(f.c.status().running!.runId, live.runId);
+    assert.deepEqual(f.store.get(f.path), stateBefore);
+    assert.deepEqual(f.store.control(f.dir), controlBefore);
     finish(); await f.c.cancel();
   } finally { finish(); await f.close(); }
 });
@@ -523,6 +535,47 @@ test("fresh healthy status retires old binary/upgrade blockers without new work 
     assert.equal(history[0].issue.failures, 5529); assert.equal(history[0].issue.lastAttemptAt, undefined);
     assert.equal(history[0].evidence.upgraded, true);
     assert.deepEqual(f.store.get(f.path)!.review, r.review);
+  } finally { await f.close(); }
+});
+
+test("confirmed bundle upgrade completion archives named parked errors before the next stage", async () => {
+  const f = await fixture({ upgraded: true, summary: false, config: { compaction: { enabled: false } } });
+  const bundle = join(f.dir, "knowledge");
+  const original = f.bus.emit;
+  f.bus.emit = (channel, r) => {
+    original(channel, r);
+    if (channel === "memory" && r.operation === "status") r.result = r.result.then((status: any) => ({ ...status, bundle }));
+  };
+  try {
+    const archive = join(f.dir, "archive.jsonl"); f.save(archive); f.c.enqueue(archive);
+    const row = f.store.get(archive)!;
+    const issue = { failures: 11, attempts: 11, retryAt: 60_000, lastAttemptAt: f.c.now(), kind: "blocked" as const,
+      resource: bundle, code: "memory-external", error: "Recovery checkpoint exceeds 8 MiB capacity",
+      parked: { at: f.c.now(), settings: "parked" } };
+    row.errors = { upgrade: issue }; f.store.put(row);
+    f.advance(); await f.c.tick();
+    assert.deepEqual(f.calls, ["review"]); // returned before scanning archive
+    assert.equal(f.store.get(archive)!.errors?.upgrade, undefined);
+    assert.equal(f.store.get(archive)!.review, undefined);
+    assert.deepEqual(f.store.resolvedIssues(f.dir)[0].issue, issue);
+    const text = formatStatus(f.c.status(), { memory: { protocol: 1, channel: "memory" } }, f.c.now());
+    assert.match(text, /Issues: 0 errors · 0 blockers/);
+    assert.match(text, /Recently resolved issues[\s\S]*Recovery checkpoint exceeds 8 MiB capacity/);
+    assert.doesNotMatch(f.footers.at(-1)!, /block|err/);
+  } finally { await f.close(); }
+});
+
+test("successful stage archives its own old parked error and stores real coverage", async () => {
+  const f = await fixture({ upgraded: true, summary: false, config: { compaction: { enabled: false } } });
+  try {
+    const row = f.store.get(f.path)!;
+    row.errors = { review: { failures: 11, retryAt: 60_000, lastAttemptAt: f.c.now(), kind: "error", code: "operation-failed", error: "previous failure" } };
+    f.store.put(row);
+    f.advance(61_000); await f.c.tick();
+    assert.equal(f.store.resolvedIssues(f.dir)[0].issue.failures, 11);
+    assert.equal(f.store.get(f.path)!.errors?.review, undefined);
+    assert.equal(f.store.get(f.path)!.review?.hash, row.hash);
+    assert.doesNotMatch(f.footers.at(-1)!, /err/);
   } finally { await f.close(); }
 });
 

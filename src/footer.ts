@@ -6,7 +6,7 @@ export interface FooterState {
   frame?: number;
   observerPid?: number; settingsOpen: boolean; foregroundBusy: boolean; peerBusy: boolean;
   executorPid?: number; savedSession: boolean; budgetReached: boolean;
-  errors: number; blockers?: number; deferrals?: number; idleRemainingSeconds: number;
+  errors: number; recoveryStalled?: boolean; blockers?: number; deferrals?: number; idleRemainingSeconds: number;
 }
 /** Emoji delimits this extension's block; never render cached progress as live state. */
 export function formatFooter(s: FooterState): string {
@@ -25,6 +25,7 @@ export function formatFooter(s: FooterState): string {
   if (s.foregroundBusy) return "🧹 busy";
   if (s.peerBusy) return "🧹 peer";
   if (s.executorPid) return `🧹 slot #${s.executorPid}`;
+  if (s.recoveryStalled) return "🧹 recovery stalled → status";
   if (!s.savedSession) return "🧹 new";
   if (s.budgetReached) return "🧹 budget";
   if (s.errors) return `🧹 err ${s.errors} → status`;

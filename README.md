@@ -28,6 +28,8 @@ Optional dependencies are separate packages, not bundled or auto-installed:
 - Updated **pi-session-search** (not pi-search): summary adapter and existing cache.
 - Native pi compaction needs no extra package.
 
+**Release 0.11.0** pairs with pi-okf-agent-memory 0.13.0. Status distinguishes resolved failures from active ones, retry leaves an in-flight run alone, and stalled recovery cases report their model, attempts and next steps.
+
 **Release 0.10.0** pairs with pi-okf-agent-memory 0.12.0, which stores memory
 natively (no `okf` binary). Guidance reads its structured validation findings,
 explains `memory-upgrade-review`, and treats `memory-context-capacity` as a model
@@ -208,6 +210,8 @@ source hash; installed-step attestations still pass runner ordering/verifiers.
 Content fingerprints and a daily health key re-admit validation even when saved
 conversation coverage is fresh, without replaying committed extraction sections.
 
+If the footer says **recovery stalled**, open `/maintenance status`. With the updated memory adapter it shows the private case path, model, attempt count and last recorded progress. After repeated attempts without progress, the worker can pause before spending more on an unchanged case. Choose a more capable review model, or adjust the recovery turn limit or model timeout if those limits are the constraint. A checkpoint capacity blocker instead lists the largest included bundle files; moving confirmed scratch out of the bundle is safer than deleting case evidence.
+
 External prerequisites include unavailable credentials/mounts, incompatible
 runtime/model capabilities, foreign/live ownership, and Git operations belonging
 to unrelated project state. They remain structured host/owning-agent prerequisites,
@@ -383,14 +387,23 @@ labeled rather than assigned invented timestamps. Fresh healthy adapter status
 archives obsolete binary/upgrade errors in `state.db`'s `issue_history` instead of
 leaving them as active blockers. Original messages, counters and legacy unknown
 timestamps are preserved alongside the resolution evidence/time; no work receipt
-is manufactured. Cached summary errors clear only after fresh ready status and a
+is manufactured. Confirmed bundle-wide upgrade completion also retires other
+sessions’ upgrade failures that name that exact bundle. New successful stages
+archive the prior failure for that stage. Status separates recent resolved history
+from unresolved checks (with their last-check age, when known), and only unresolved
+issues contribute to the footer. Cached summary errors clear only after fresh ready status and a
 matching saved receipt. Failed or unavailable status checks never clear blockers. Unknown diagnostics are not
 presented as a confidently diagnosed repair.
 
 `/maintenance run` and `/maintenance retry` are aliases: both clear retry backoff
 without erasing receipts/history and attempt admission immediately, skipping the
 normal idle countdown and poll delay. They return when a stage starts, not when
-its model call completes. If admission is blocked they explain why (foreground
+its model call completes. If a stage is running locally or in the workspace's
+executor, they report the stage and start time, without interrupting it, changing
+backoff, or scheduling another run. Use `/maintenance watch` to follow progress.
+Maintenance opportunities are bounded; adapters resume from saved checkpoints on
+later opportunities where supported. A checkpointed stop is not itself a failure,
+and already-saved checkpoints survive cancellation. If admission is blocked they explain why (foreground
 work/input, another owner/executor, suspension/off, settings, budget, missing model
 or adapter prerequisites). Neither interrupts active work, steals ownership, or
 bypasses safety/budget gates. If nothing is due, they report that rather than

@@ -29,6 +29,8 @@ test("guidance distinguishes routine waiting from specific prerequisite repairs"
   // pi-okf-agent-memory 0.12+ reports structured findings instead of validator arrays.
   const native = nextSteps(group("memory-validation", { findings: [{ code: "invalid-concept", file: "x.md", message: "x.md: frontmatter has no title." }] }));
   assert.equal(native.intervention, "needed"); assert.match(native.actions.join(" "), /x\.md: frontmatter has no title/);
+  const capacity = nextSteps(group("memory-external", { checkpoint: { largest: [{ path: ".review-scratch/dump", bytes: 8100000 }] } }));
+  assert.ok(capacity.actions.includes("8100000 bytes: .review-scratch/dump"));
   assert.match(nextSteps(group("memory-context-capacity")).actions.join(" "), /larger-context review model/);
   assert.equal(nextSteps(group("memory-context-capacity")).intervention, "needed");
   assert.match(nextSteps(group("memory-upgrade-review")).actions.join(" "), /\/memory-upgrade/);

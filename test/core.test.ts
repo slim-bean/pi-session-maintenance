@@ -55,8 +55,9 @@ test("snapshots include every branch and ignore compaction/metadata changes", ()
 
 test("ownership is atomic, does not expire live owners, and recovers only dead locals", () => {
   const dir = mkdtempSync(join(tmpdir(), "maintenance-store-"));
-  const a = new Store(dir, () => 10, (pid) => pid === process.pid);
-  const b = new Store(dir, () => 999999, (pid) => pid === process.pid);
+  const probe = () => ({ startedAt: 1 }); // same synthetic clock as both lease owners
+  const a = new Store(dir, () => 10, (pid) => pid === process.pid, probe);
+  const b = new Store(dir, () => 999999, (pid) => pid === process.pid, probe);
   try {
     assert.equal(a.claim("session:x"), true); assert.equal(b.claim("session:x"), false);
     a.release("session:x"); assert.equal(b.claim("session:x"), true);

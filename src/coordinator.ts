@@ -168,6 +168,7 @@ export class Coordinator {
         }
         // Start with current session, then the explicitly observed/backfilled queue.
         const records = this.store.records(this.ctx.cwd).sort((a, b) => Number(b.path === this.current) - Number(a.path === this.current) || a.seen - b.seen);
+        const completedBundles = new Set<string>();
         for (const record of records) {
           if (this.closed || !this.idle() || !this.enabled()) break;
           let source: Snapshot;
@@ -230,6 +231,20 @@ export class Coordinator {
               if (upgrade && (isBinaryIssue(upgrade) || memoryStatus.upgraded === true)) this.store.resolveIssue(current, "upgrade",
                 { adapter: caps.memory?.channel, available: true, upgraded: memoryStatus.upgraded, key: memoryStatus.key,
                   reason: memoryStatus.upgraded ? "Fresh adapter status confirms installed upgrades are complete" : "Fresh adapter status confirms binary lookup/contract is healthy" });
+              // Upgrade completion is bundle-wide. Reconcile saved failures for
+              // this exact bundle now, even if a current-session stage starts
+              // before the scan reaches the other sessions. Never guess the
+              // bundle for records with missing or different resources.
+              const bundle = memoryStatus.bundle;
+              if (memoryStatus.upgraded === true && typeof bundle === "string" && bundle && !completedBundles.has(bundle)) {
+                completedBundles.add(bundle);
+                for (const other of records) {
+                  if (other.path !== current.path && other.errors?.upgrade?.resource === bundle) this.store.resolveIssue(other, "upgrade", {
+                    adapter: caps.memory?.channel, available: true, upgraded: true, bundle,
+                    reason: "Fresh adapter status confirms upgrades are complete for this bundle",
+                  });
+                }
+              }
               const review = current.errors?.review;
               if (review && isBinaryIssue(review)) this.store.resolveIssue(current, "review",
                 { adapter: caps.memory?.channel, available: true, key: memoryStatus.key, reason: "Fresh adapter status confirms binary lookup/contract is healthy" });
@@ -388,7 +403,8 @@ export class Coordinator {
           abort.signal.throwIfAborted();
           const record = this.store.get(source.path)!;
           record.compact = { hash: before, key, at: this.now() };
-          delete record.errors?.compact; this.store.put(record);
+          this.store.put(record);
+          this.store.resolveIssue(record, stage, { runId: log.id, sourceHash: before, reason: "Native compaction completed" });
           log.event("compaction", { source: source.path, beforeHash: before }); log.finish("complete");
         } else {
           const operation = stage === "summary" ? "run" : stage;
@@ -403,7 +419,11 @@ export class Coordinator {
           if (outcome.complete && (stage === "review" || stage === "summary")) record[stage] = { hash: source.hash, key: outcome.key, at: this.now(), detail: outcome.detail };
           if ((stage === "review" || stage === "upgrade") && this.config.push) record.pushPending = true;
           if (stage === "push") record.pushPending = false;
-          delete record.errors?.[stage]; this.store.put(record);
+          if (!outcome.complete && outcome.available !== false) delete record.errors?.[stage];
+          this.store.put(record);
+          if (outcome.complete && outcome.available !== false) this.store.resolveIssue(record, stage, {
+            adapter: channel, runId: log.id, sourceHash: source.hash, key: outcome.key, reason: "Stage completed successfully",
+          });
           log.event("outcome", outcome); log.finish(outcome.complete ? "complete" : "checkpoint");
           this.progress = `${stage} ${outcome.complete ? "complete" : "checkpoint saved; more work pending"}`;
         }
@@ -523,6 +543,12 @@ export class Coordinator {
     };
     const owner = this.current ? foreign("session:" + this.current) : undefined;
     const executor = foreign("executor:" + this.ctx.cwd);
+    const running = this.running ?? (executor && this.store.records(this.ctx.cwd).find(r => r.active?.owner === executor.token)?.active);
+    if (running) {
+      const since = new Date(running.started).toISOString();
+      return `${safeText(running.stage)} is already running since ${since}. Left the run and retry state unchanged. /maintenance watch follows progress.`;
+    }
+    if (this.tickRunning) return "A maintenance admission check is already in progress. Retry state left unchanged.";
     // An observer must not rewrite another executor's live record just to ask for work.
     if (!owner && !executor) this.store.clearBackoff(this.ctx.cwd);
     const blocker = !this.config.enabled || c.disabled ? "maintenance is off; use /maintenance on" :
@@ -530,8 +556,6 @@ export class Coordinator {
       this.localHolds ? "the settings editor holds maintenance" :
       !this.current || (!existsSync(this.current) && !this.store.records(this.ctx.cwd).some(record => existsSync(record.path))) ? "there is no saved conversation or queued backlog to maintain" :
       owner ? `PID ${owner.pid} owns this session; run the command in that window` :
-      this.running ? `${this.running.stage} is already running; use /maintenance watch` :
-      this.tickRunning ? "a maintenance admission check is already in progress" :
       !this.ctx.isIdle() || this.ctx.hasPendingMessages() ? "foreground work or queued input is active" :
       this.store.otherBusy(this.ctx.cwd) ? "foreground work is active in another window" :
       executor ? `PID ${executor.pid} owns the workspace executor; use /maintenance watch` : undefined;
@@ -625,6 +649,7 @@ export class Coordinator {
       settingsOpen: this.localHolds > 0, foregroundBusy, peerBusy: this.store.otherBusy(this.ctx.cwd),
       executorPid: executor && executor.token !== this.store.owner && this.store.isLive(executor) ? executor.pid : undefined,
       savedSession: Boolean(this.current), budgetReached: this.store.spent() >= this.config.dailyBudget,
+      recoveryStalled: groups.some(g => g.code === "memory-recovery-stalled"),
       errors: Math.max(this.footerError ? 1 : 0, groups.filter((g) => g.kind === "error").length),
       blockers: groups.filter((g) => g.kind === "blocked").length,
       deferrals: groups.filter((g) => g.kind === "deferred").length,

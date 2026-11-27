@@ -4,7 +4,7 @@ import { describeConfigSource, type Config } from "./config.ts";
 import type { Coordinator } from "./coordinator.ts";
 import type { Capabilities } from "./protocol.ts";
 import type { RecordState, Receipt } from "./store.ts";
-import { groupedIssues } from "./issues.ts";
+import { groupedIssues, recoveryCase } from "./issues.ts";
 import { nextSteps } from "./guidance.ts";
 
 export type Status = ReturnType<Coordinator["status"]>;
@@ -107,7 +107,7 @@ export function formatStatus(status: Status & { sessionRotation?: { pending: boo
   if (status.running?.transcript) lines.push(`Transcript: ${clean(prettyPath(status.running.transcript), 500)}`,
     `Inspect: /maintenance watch · last event ${timeSpan(Math.max(0, now - status.running.lastEvent) / 1000)} ago`);
   if (groups.length) {
-    lines.push("", "Maintenance issues (shared resources counted once)");
+    lines.push("", "Unresolved maintenance issues (last recorded checks; shared resources counted once)");
     for (const g of groups.slice(0, 8)) {
       const kind = g.kind === "deferred" ? "Waiting" : g.kind === "blocked" ? "Blocked" : "Error";
       // A raised maxRetries re-admits immediately; settings changes are confirmed by the next attempt.
@@ -115,10 +115,16 @@ export function formatStatus(status: Status & { sessionRotation?: { pending: boo
       const retry = parked ? "automatic retry stopped" : g.retryAt > now ? `retry in ${timeSpan((g.retryAt - now) / 1000)}` : "retry eligible";
       lines.push(`• ${kind}: ${clean(g.message, 240)}`);
       lines.push(`  ${prettyPath(g.resource)} · affects ${g.paths.size} session(s) · ${retry}`);
+      const recovery = recoveryCase(g.detail);
+      if (recovery) {
+        lines.push(`  Recovery case: ${clean(prettyPath(recovery.path), 500)}`);
+        lines.push(`  Case attempts: ${recovery.attempts ?? "unknown"} · model: ${clean(recovery.model ?? "unknown")} · last recorded progress: ${clean(recovery.lastProgressAt ?? "not recorded")}`);
+        if (recovery.cause) lines.push(`  Cause: ${clean(recovery.cause, 240)}`);
+      }
       if (g.attempts > 0) {
         const history = g.legacyHistory ? `Recorded unsuccessful checks: up to ${g.attempts} for an affected job (legacy history).` :
           g.attempts === 1 ? "First unsuccessful check; no retry recorded yet." : `${g.attempts} unsuccessful checks for an affected job; already retried ${g.attempts - 1} time(s).`;
-        lines.push(`  History: ${history}${g.lastAttemptAt ? ` Last check ${timeSpan(Math.max(0, now - g.lastAttemptAt) / 1000)} ago.` : ""}`);
+        lines.push(`  History: ${history}${g.lastAttemptAt !== undefined ? ` Last check ${timeSpan(Math.max(0, now - g.lastAttemptAt) / 1000)} ago.` : " Last check time not recorded."}`);
       } else lines.push("  History: no attempt history recorded for this condition.");
       const guidance = nextSteps({ ...g, parked: parked ? g.parked : 0 });
       lines.push(`  Next: ${guidance.intervention === "needed" ? "Action needed before this can pass." : guidance.intervention === "suggested" ? "Investigation recommended; repeated retries have not resolved it." : "No intervention required yet."}`);
@@ -139,6 +145,12 @@ export function formatStatus(status: Status & { sessionRotation?: { pending: boo
     }
     if (groups.length > 8) lines.push(`… ${groups.length - 8} more distinct issues`);
   }
+  if (status.resolvedIssues?.length) {
+    lines.push("", "Recently resolved issues (historical; not counted above)");
+    for (const entry of status.resolvedIssues.slice(0, 4)) {
+      lines.push(`• ${stageName(entry.stage)} · ${label(entry.path)} · resolved ${timeSpan(Math.max(0, now - entry.at) / 1000)} ago: ${clean(entry.issue.message ?? entry.issue.error, 200)}`);
+    }
+  }
   if (advisoryNotes.size) {
     lines.push("", "Last validation advisories (do not block commits)");
     for (const note of [...advisoryNotes.values()].slice(0, 4)) lines.push(`• ${clean(note.message, 240)}`);
@@ -156,7 +168,8 @@ export function formatStatus(status: Status & { sessionRotation?: { pending: boo
         if (!issue) continue;
         const retry = issue.parked && issue.failures > cfg.maxRetries ? "automatic retry stopped" : issue.retryAt > now ? `retry in ${timeSpan((issue.retryAt - now) / 1000)}` : "retry eligible";
         const state = issue.kind === "deferred" ? "waiting" : issue.kind === "blocked" ? "blocked" : "error";
-        lines.push(`  ${stageName(stage)} ${state}, ${retry}${issue.resource ? " (see shared issue above)" : `: ${clean(issue.message ?? issue.error, 240)}`}`);
+        const checked = issue.lastAttemptAt === undefined ? "last check time not recorded" : `last checked ${timeSpan(Math.max(0, now - issue.lastAttemptAt) / 1000)} ago`;
+        lines.push(`  ${stageName(stage)} ${state}, ${retry}${issue.resource ? " (see shared issue above)" : `: ${clean(issue.message ?? issue.error, 240)}`} · ${checked}`);
       }
     }
     if (records.length > 8) lines.push(`… ${records.length - 8} more observed sessions`);

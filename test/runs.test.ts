@@ -68,17 +68,19 @@ test("retention prunes only completed old runs; oversized transcripts stop furth
 });
 
 test("passive inspection/admission commands do not preempt work; normal input and mutation commands do", () => {
-  for (const command of ["watch", "history", "logs", "status", "help", "run", "retry"]) {
-    const text = `/maintenance ${command}`;
+  for (const text of [...["watch", "history", "logs", "status", "help", "run", "retry"].map(command => `/maintenance ${command}`), "/memory-upgrade status"]) {
     for (let i = 0; i < text.length; i++) assert.equal(passiveTerminalInput(text.slice(0, i), text[i]), true, text.slice(0, i + 1));
     assert.equal(passiveTerminalInput(text, "\r"), true); assert.equal(passiveCommand(text), true);
     for (let i = 0; i < text.length; i++) assert.equal(passiveTerminalInput(text.slice(0, i), `\x1b[${text.charCodeAt(i)};1u`), true);
   }
-  for (const text of ["hello", "/other", "/maintenance off", "/maintenance settings", "/maintenance cancel", "/maintenance run\nuser input"]) assert.equal(passiveCommand(text), false);
+  for (const text of ["hello", "/other", "/maintenance off", "/maintenance settings", "/maintenance cancel", "/maintenance run\nuser input", "/memory-upgrade unlock", "/memory-upgrade status\nuser input"]) assert.equal(passiveCommand(text), false);
   assert.equal(passiveTerminalInput("", "hello"), false);
   assert.equal(passiveTerminalInput("/maintenance ", "o"), false);
   assert.equal(passiveTerminalInput("", "\x1b[27;1:3u"), true); // releasing Esc after the monitor closes
   assert.equal(passiveTerminalInput("", "\x1b[200~/maintenance watch\x1b[201~"), true);
+  assert.equal(passiveTerminalInput("", "\x1b[200~/maintenance  re\x1b[201~"), true);
+  assert.equal(passiveTerminalInput("/maintenance  re", "\t"), true);
+  assert.equal(passiveTerminalInput("/maintenance  re", "\r"), false);
   assert.equal(passiveTerminalInput("", "\x1b[200~ordinary text\x1b[201~"), false);
   assert.equal(passiveTerminalInput("", "\x1b[200~/maintenance watch\nuser text\x1b[201~"), false);
 });
