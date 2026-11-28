@@ -25,6 +25,10 @@ test("factory is inert; trusted session binds commands/host config; shutdown can
     assert.deepEqual(command.getArgumentCompletions("su").map((a: any) => a.value), ["suspend"]);
     await command.handler("status", ctx); assert.match(notices.at(-1)!, /Session maintenance · off/);
     assert.doesNotMatch(notices.at(-1)!, /"enabled"|"cancel_seq"/);
+    assert.match(notices.at(-1)!, /Inspect:[\s\S]*\/maintenance status --details/);
+    assert.doesNotMatch(notices.at(-1)!, /Stages:/);
+    assert.equal(command.getArgumentCompletions("status --d")[0].value, "status --details");
+    await command.handler("status --details", ctx); assert.match(notices.at(-1)!, /Stages:/);
     await command.handler("settings", ctx); assert.match(notices.at(-1)!, /Enabled: off · Idle delay: 10m/);
     const request: any = { protocol: 1, operation: "configure", settings: { enabled: false, idleSeconds: 30, stateDir: join(dir, "state") } };
     bus.emit("pi-session-maintenance:control:v1", request); assert.ok(request.result);

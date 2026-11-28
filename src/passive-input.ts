@@ -15,6 +15,9 @@ function passiveDraft(text: string): boolean {
 }
 export function passiveTerminalInput(editor: string, data: string): boolean {
   if (isKeyRelease(data) || data === "\x1b[I" || data === "\x1b[O") return true;
+  // Up/Down navigate editor history before getEditorText reflects the recalled entry.
+  // Browsing is not submission. Enter below still checks what was actually recalled.
+  if (matchesKey(data, Key.up) || matchesKey(data, Key.down)) return true;
   if (matchesKey(data, "ctrl+alt+m")) return true;
   if (data.startsWith("\x1b[200~") && data.endsWith("\x1b[201~")) return passiveDraft(editor + data.slice(6, -6));
   if (matchesKey(data, Key.enter)) return passiveCommand(editor);

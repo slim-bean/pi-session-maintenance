@@ -74,6 +74,9 @@ test("passive inspection/admission commands do not preempt work; normal input an
     for (let i = 0; i < text.length; i++) assert.equal(passiveTerminalInput(text.slice(0, i), `\x1b[${text.charCodeAt(i)};1u`), true);
   }
   for (const text of ["hello", "/other", "/maintenance off", "/maintenance settings", "/maintenance cancel", "/maintenance run\nuser input", "/memory-upgrade unlock", "/memory-upgrade status\nuser input"]) assert.equal(passiveCommand(text), false);
+  assert.equal(passiveTerminalInput("ordinary recalled prompt", "\x1b[B"), true);
+  assert.equal(passiveTerminalInput("ordinary recalled prompt", "\r"), false);
+  assert.equal(passiveTerminalInput("/maintenance cancel", "\r"), false);
   assert.equal(passiveTerminalInput("", "hello"), false);
   assert.equal(passiveTerminalInput("/maintenance ", "o"), false);
   assert.equal(passiveTerminalInput("", "\x1b[27;1:3u"), true); // releasing Esc after the monitor closes

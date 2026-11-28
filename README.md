@@ -28,6 +28,8 @@ Optional dependencies are separate packages, not bundled or auto-installed:
 - Updated **pi-session-search** (not pi-search): summary adapter and existing cache.
 - Native pi compaction needs no extra package.
 
+**Release 0.12.0** makes `/maintenance status` a short progress report; `/maintenance status --details` keeps the full diagnostics. Browsing editor history with Up/Down no longer interrupts a running job.
+
 **Release 0.11.0** pairs with pi-okf-agent-memory 0.13.0. Status distinguishes resolved failures from active ones, retry leaves an in-flight run alone, and stalled recovery cases report their model, attempts and next steps.
 
 **Release 0.10.0** pairs with pi-okf-agent-memory 0.12.0, which stores memory
@@ -210,7 +212,7 @@ source hash; installed-step attestations still pass runner ordering/verifiers.
 Content fingerprints and a daily health key re-admit validation even when saved
 conversation coverage is fresh, without replaying committed extraction sections.
 
-If the footer says **recovery stalled**, open `/maintenance status`. With the updated memory adapter it shows the private case path, model, attempt count and last recorded progress. After repeated attempts without progress, the worker can pause before spending more on an unchanged case. Choose a more capable review model, or adjust the recovery turn limit or model timeout if those limits are the constraint. A checkpoint capacity blocker instead lists the largest included bundle files; moving confirmed scratch out of the bundle is safer than deleting case evidence.
+If the footer says **recovery stalled**, open `/maintenance status --details`. With the updated memory adapter it shows the private case path, model, attempt count and last recorded progress. After repeated attempts without progress, the worker can pause before spending more on an unchanged case. Choose a more capable review model, or adjust the recovery turn limit or model timeout if those limits are the constraint. A checkpoint capacity blocker instead lists the largest included bundle files; moving confirmed scratch out of the bundle is safer than deleting case evidence.
 
 External prerequisites include unavailable credentials/mounts, incompatible
 runtime/model capabilities, foreign/live ownership, and Git operations belonging
@@ -261,7 +263,8 @@ scheduler is implemented; configure concurrency on your server.
 ## Controls and visibility
 
 ```text
-/maintenance status             # ownership, stages, checkpoints, errors, cost
+/maintenance status             # current work, backlog, and what needs attention
+/maintenance status --details   # ownership, stages, checkpoints, errors, cost
 /maintenance settings           # interactive workspace editor; Save & apply or Cancel
 /maintenance settings show      # readable configuration overview without dialogs
 /maintenance run                # start immediately or report the blocker; clear backoff
@@ -280,7 +283,8 @@ scheduler is implemented; configure concurrency on your server.
 
 Tab completion includes action descriptions. Every action reports what it changed;
 suspend/backfill can prompt for a missing argument when a UI is available. Status
-shows mode, ownership, idle timing, enabled/absent stages, approximate spend, named
+summarizes current work and the backlog; its Inspect section links to the full report.
+`/maintenance status --details` shows ownership, idle timing, enabled/absent stages, approximate spend, named
 sessions' saved coverage and retry blockers—not a raw JSON dump. Coverage is bounded
 to eight sessions; the host API remains structured and complete. Footer status
 describes running/waiting/suspended work. Active stages animate a spinner and show
@@ -289,8 +293,9 @@ maintenance while open and does not call a model or resolve credentials. There i
 no unsolicited model prompt or maintenance transcript appended to your conversation.
 Foreground input/agent starts cancel background calls; TUI typing also takes
 priority. Typing `/maintenance watch`, `history`, `status`, `help`, `run`, or `retry`
-does not preempt work; ordinary prose, other commands and mutation commands still
-do. Passive monitor navigation never holds maintenance or changes ownership.
+does not preempt work. Up/Down can browse editor history without stopping a run;
+pressing Enter on a recalled ordinary prompt or mutation command still interrupts it,
+as does typing ordinary prose. Ctrl+Alt+M opens the monitor directly. Passive monitor navigation never holds maintenance or changes ownership.
 Participating windows in the same cwd publish busy state and interruption
 counters: peer input preempts owned background work within one polling interval,
 without stealing its lease. Peer progress is visible in the shared status ledger. Timers only start at session_start in trusted working directories.
@@ -556,7 +561,7 @@ stops further work on an oversized transcript; viewer output is bounded separate
 ## Storage and development
 
 `state.db` stores observed sessions, receipts, controls, leases, daily spend and
-resolved issue history. `/maintenance status` reports the actual loaded maintenance
+resolved issue history. `/maintenance status --details` reports the actual loaded maintenance
 configuration source (workspace file, defaults, or host override) and recent
 archival counts; failed admission includes that configuration source too.
 `/memory-diagnostics` identifies the memory package's independent binary/config

@@ -45,7 +45,7 @@ function relevantErrors(record: RecordState, status: Status, caps: Capabilities)
     stage === "push" ? status.config.push && caps.memory :
     status.config.compaction.enabled && record.path === status.currentSession);
 }
-export function formatStatus(status: Status & { sessionRotation?: { pending: boolean; progress?: string } }, caps: Capabilities, now = Date.now()): string {
+export function formatStatus(status: Status & { sessionRotation?: { pending: boolean; progress?: string } }, caps: Capabilities, now = Date.now(), view: "summary" | "details" = "details"): string {
   const cfg = status.config;
   const suspended = (status.control?.paused_until ?? 0) > now;
   const off = !cfg.enabled || Boolean(status.control?.disabled);
@@ -79,6 +79,29 @@ export function formatStatus(status: Status & { sessionRotation?: { pending: boo
     (cfg.push && r.pushPending));
   const pending = records.filter(needsCoverage).length;
   const groups = groupedIssues(records, (stage, r) => relevantErrors(r, status, caps).some(([s]) => s === stage));
+  if (view === "summary") {
+    const ago = (at: number) => `${timeSpan(Math.max(0, now - at) / 1000)} ago`;
+    const lines = [`Session maintenance · ${mode}`, `Now: ${state}`];
+    if (status.running) {
+      const run = status.running;
+      lines.push(`  ${clean(status.progress || stageName(run.stage), 140)} · last event ${ago(run.lastEvent)}`);
+      if (run.stage === "review" || run.stage === "upgrade" || run.stage === "push") {
+        const record = records.find(r => r.path === run.path);
+        const recovery = recoveryCase(record?.errors?.[run.stage]?.detail);
+        if (/recovery/i.test(status.progress)) lines.push(`  Last recorded recovery progress: ${recovery?.lastProgressAt ?? "unknown"}`);
+      }
+    }
+    const latestReview = records.reduce((at, r) => Math.max(at, r.review?.at ?? 0), 0);
+    lines.push(`Backlog: ${pending} of ${records.length} sessions need review, summary or push.${latestReview ? ` Last completed review: ${ago(latestReview)}.` : ""}`);
+    const attention = groups.filter(g => g.kind !== "deferred").sort((a, b) => Number(Boolean(b.parked)) - Number(Boolean(a.parked)));
+    for (const g of attention.slice(0, 2)) {
+      const stopped = g.parked && g.attempts > cfg.maxRetries;
+      lines.push(`Attention: ${stopped ? "Automatic retries stopped" : g.kind === "blocked" ? "Blocked" : "Last attempt failed"} (${[...g.stages].map(stageName).join(", ")}). ${clean(g.message.replace(/^Autonomous recovery encountered an execution\/provider failure and will retry automatically:\s*/, ""), 160)}`);
+    }
+    if (attention.length > 2) lines.push(`  ${attention.length - 2} more issues in details.`);
+    lines.push("Inspect:", ...(active ? ["  /maintenance watch — follow the running job"] : []), "  /maintenance history — inspect past attempts", "  /maintenance status --details — settings, per-session work and failure reasons");
+    return lines.join("\n");
+  }
   const advisoryNotes = new Map<string, { at: number; message: string }>();
   for (const r of records) {
     const detail = r.review?.detail as { bundle?: string; advisories?: { code: string; message: string }[] } | undefined;

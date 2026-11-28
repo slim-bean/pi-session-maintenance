@@ -93,7 +93,7 @@ export default function maintenance(pi: ExtensionAPI) {
     try { await inspectRun(commandCtx); } catch (error) { if (coordinator === runtimeAtEntry) commandCtx.ui.notify(safeText((error as Error).message), "error"); }
   } });
   const descriptions: Record<string, string> = {
-    status: "Show ownership, work, coverage and blockers", settings: "Edit workspace settings interactively",
+    status: "Show current work and backlog; use /maintenance status --details for diagnostics", settings: "Edit workspace settings interactively",
     watch: "Passively follow background output (Ctrl+Alt+M)", history: "Browse runs and results in a two-pane TUI; Enter views the session",
     run: "Start now or report the blocker; clear retry backoff", cancel: "Stop local work and suspend the workspace",
     suspend: "Pause for a duration, e.g. 30m", resume: "Clear workspace suspension and begin a fresh idle interval",
@@ -109,6 +109,7 @@ export default function maintenance(pi: ExtensionAPI) {
     description: "Manage session maintenance and rotation (see /maintenance help)",
     getArgumentCompletions(prefix) {
       const parts = prefix.trimStart().split(/\s+/);
+      if (parts.length === 2 && parts[0] === "status" && "--details".startsWith(parts[1])) return [{ value: "status --details", label: "--details", description: "Show full maintenance diagnostics" }];
       if (parts.length === 2 && parts[0] === "settings" && "show".startsWith(parts[1])) {
         return [{ value: "settings show", label: "show", description: "Inspect settings without editing" }];
       }
@@ -132,7 +133,10 @@ export default function maintenance(pi: ExtensionAPI) {
           return;
         }
         if (action === "rotation-restore") { await rotation.restore(commandCtx); return; } // internal command, not a model request
-        if (action === "status") commandCtx.ui.notify(formatStatus(status(c), discover(pi.events)), "info");
+        if (action === "status") {
+          if (rest.length && (rest.length !== 1 || rest[0] !== "--details")) { commandCtx.ui.notify("Usage: /maintenance status [--details]", "warning"); return; }
+          commandCtx.ui.notify(formatStatus(status(c), discover(pi.events), Date.now(), rest.length ? "details" : "summary"), "info");
+        }
         else if (action === "watch" || action === "history") await inspectRun(commandCtx, action === "history", rest[0]);
         else if (action === "settings") {
           if (!commandCtx.hasUI || rest[0] === "show") { commandCtx.ui.notify(formatSettings(c.config, commandCtx.cwd), "info"); return; }

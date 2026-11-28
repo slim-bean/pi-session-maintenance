@@ -1,6 +1,6 @@
 {
   "name": "pi-session-maintenance",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "type": "module",
   "description": "Capability-driven idle session maintenance: memory, search summaries and optional compaction.",

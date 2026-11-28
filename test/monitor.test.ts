@@ -53,10 +53,19 @@ test("watch/status typing and monitor navigation do not cancel a live run; ordin
     for (const char of "/maintenance status") { terminal(char); editor += char; }
     terminal("\r"); await command.handler("status", ctx); editor = "";
     assert.equal(activeSignal!.aborted, false);
-    const watching = shortcut.handler(ctx); await new Promise(resolve => setTimeout(resolve, 0));
+    // Terminal listeners run before history replaces the editor text. Browse past
+    // an ordinary prompt to watch without submitting that intermediate draft.
+    terminal("\x1b[A"); editor = "previous question";
+    terminal("\x1b[A"); editor = "/maintenance watch";
+    terminal("\r"); hooks.get("input")!({ text: editor }, ctx); editor = "";
+    const watching = command.handler("watch", ctx); await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(activeSignal!.aborted, false);
+    assert.equal((await status()).running.runId, before.running.runId);
     terminal("k"); component.handleInput("k"); terminal("f"); component.handleInput("f");
     assert.equal(activeSignal!.aborted, false); assert.equal((await status()).control.cancel_seq, before.control.cancel_seq);
     component.handleInput("\x1b"); await watching;
+    const viaShortcut = shortcut.handler(ctx); await new Promise(resolve => setTimeout(resolve, 0));
+    component.handleInput("\x1b"); await viaShortcut;
     assert.deepEqual(command.getArgumentCompletions("hi").map((c: any) => c.value), ["history"]);
     assert.equal(command.getArgumentCompletions("logs"), null);
     for (const char of "/maintenance history") { terminal(char); editor += char; }
